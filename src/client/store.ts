@@ -566,6 +566,7 @@ export interface ReviewState {
    * deleted files. `external` opens a file the language server named outside the snapshot instead.
    */
   openFullFile(path: string, line?: number, external?: boolean): Promise<void>;
+  restorePosition(position: JumpPosition): Promise<void>;
   /** Back to the diff list, at the position the file view was entered from. */
   closeFullFile(): void;
   setSelection(sel: CodeViewLineSelection | null): void;
@@ -2551,6 +2552,7 @@ export const useStore = create<ReviewState>((set, get) => {
     },
 
     loadFile,
+    restorePosition: goToPositionSilently,
 
     async openFile(path, line, side) {
       const snap = get().snapshot;

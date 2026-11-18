@@ -2814,6 +2814,48 @@
         "after"
       ]
     },
+    "ReviewLocation": {
+      "type": "object",
+      "properties": {
+        "updatedAt": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "commentKey": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "line": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "side": {
+          "$ref": "#/$defs/Side"
+        },
+        "full": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "updatedAt",
+        "commentKey",
+        "path",
+        "line",
+        "side",
+        "full"
+      ]
+    },
     "SearchContent": {
       "type": "string",
       "enum": [
@@ -3200,15 +3242,69 @@
         "token": {
           "type": "string"
         },
-        "startupTabs": {
-          "type": "integer",
-          "minimum": -9007199254740991,
-          "maximum": 9007199254740991
+        "layout": {
+          "$ref": "#/$defs/TerminalLayout"
         }
       },
       "required": [
         "token",
-        "startupTabs"
+        "layout"
+      ]
+    },
+    "TerminalLayout": {
+      "type": "object",
+      "properties": {
+        "updatedAt": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "open": {
+          "type": "boolean"
+        },
+        "next": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "active": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tabs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TerminalTab"
+          }
+        }
+      },
+      "required": [
+        "updatedAt",
+        "open",
+        "next",
+        "active",
+        "tabs"
+      ]
+    },
+    "TerminalReplay": {
+      "type": "object",
+      "properties": {
+        "replayChunks": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "replayChunks"
       ]
     },
     "TerminalResize": {
@@ -3242,6 +3338,34 @@
           "maximum": 9007199254740991
         }
       }
+    },
+    "TerminalTab": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "panes": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "activePane": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "panes",
+        "activePane"
+      ]
     },
     "ThreadCreate": {
       "type": "object",

@@ -1,6 +1,27 @@
 import { expect, test } from './fixtures.js';
+import { activePath, gotoFile } from './browser.js';
+import type { Page } from '@playwright/test';
 
 test.use({ terminal: true });
+
+function capture(page: Page) {
+  const output = new Map<string, string>();
+  page.on('websocket', (socket) => {
+    const url = new URL(socket.url());
+    const pane = url.searchParams.get('pane');
+    if (!pane || !url.pathname.endsWith('/api/terminal/socket')) return;
+    socket.on('framereceived', ({ payload }) => {
+      output.set(pane, (output.get(pane) ?? '') + payload.toString());
+    });
+  });
+  return output;
+}
+
+async function run(page: Page, command: string) {
+  await page.evaluate((text) => navigator.clipboard.writeText(text), command);
+  await page.keyboard.press('Control+Shift+V');
+  await page.keyboard.press('Enter');
+}
 
 test('retains independent shells while the bottom panel is hidden', async ({ page, repo }) => {
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
@@ -44,19 +65,12 @@ test('retains independent shells while the bottom panel is hidden', async ({ pag
 });
 
 test.describe('startup terminals and splits', () => {
-  test.use({ args: ["--terminal=printf '<startup>%s</startup>\\n' codex; exec /bin/sh", '--terminal'] });
+  test.use({
+    args: ["--terminal=printf '<startup>%s</startup>\\n' codex; exec /bin/sh", '--terminal', '--keep-alive'],
+  });
 
   test('opens ordered tabs and moves focus between tabs and splits', async ({ page }) => {
-    const output = new Map<string | null, string>();
-    page.on('websocket', (socket) => {
-      const url = new URL(socket.url());
-      if (!url.pathname.endsWith('/api/terminal/socket')) return;
-      const startup = url.searchParams.get('startup');
-      output.set(startup, '');
-      socket.on('framereceived', ({ payload }) => {
-        output.set(startup, (output.get(startup) ?? '') + payload.toString());
-      });
-    });
+    const output = capture(page);
     await page.reload();
     const panel = page.getByRole('region', { name: 'Terminal panel' });
     const first = panel.getByRole('button', { name: 'Terminal 1', exact: true });
@@ -66,9 +80,10 @@ test.describe('startup terminals and splits', () => {
     await expect(first).toHaveAttribute('aria-pressed', 'true');
     await expect(second).toHaveAttribute('aria-pressed', 'false');
     await expect(focused(1)).toHaveCount(1);
-    await expect.poll(() => output.get('0')).toContain('<startup>codex</startup>');
     await expect.poll(() => output.get('1')?.length ?? 0).toBeGreaterThan(0);
-    expect(output.get('1')).not.toContain('<startup>');
+    await expect.poll(() => output.get('1')).toContain('<startup>codex</startup>');
+    await expect.poll(() => output.get('2')?.length ?? 0).toBeGreaterThan(0);
+    expect(output.get('2')).not.toContain('<startup>');
 
     await page.keyboard.press('Alt+Shift+J');
     await expect(second).toHaveAttribute('aria-pressed', 'true');
@@ -98,5 +113,58 @@ test.describe('startup terminals and splits', () => {
     await panel.getByRole('button', { name: 'Close active terminal pane' }).click();
     await expect(pane(3)).toHaveCount(0);
     await expect(focused(2)).toHaveCount(1);
+  });
+
+  test('reopens the running shells, split layout, and review location in a fresh browser context', async ({
+    page,
+    browser,
+    diffle,
+  }) => {
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    const output = capture(page);
+    await page.reload();
+    const panel = page.getByRole('region', { name: 'Terminal panel' });
+    await expect.poll(() => output.get('1')).toContain('<startup>codex</startup>');
+    await expect(panel.locator('[data-terminal-pane="1"] :focus')).toHaveCount(1);
+    await run(page, 'export DIFFLE_SESSION=kept; printf "<pid>%s</pid>\\n" "$$"');
+    await expect.poll(() => output.get('1')).toMatch(/<pid>\d+<\/pid>/);
+    const pid = output.get('1')!.match(/<pid>(\d+)<\/pid>/)![1];
+    await panel.getByRole('button', { name: 'Split terminal right' }).click();
+    await expect(panel.locator('[data-terminal-pane="3"] :focus')).toHaveCount(1);
+
+    const path = 'tally/ledger.py';
+    await gotoFile(page, path);
+    const location = async () => {
+      const result = await page.request.get(new URL('api/review-location', diffle.url).href);
+      return result.status() === 200 ? ((await result.json()) as { path: string; line: number }) : null;
+    };
+    await expect.poll(location).toMatchObject({ path, line: expect.any(Number) });
+    const before = (await location())!.line;
+    await page.keyboard.press('j');
+    await expect.poll(async () => (await location())?.line).not.toBe(before);
+    const { line } = (await location())!;
+    const viewport = page.viewportSize();
+    await page.close();
+
+    const context = await browser.newContext({ viewport: viewport ?? undefined });
+    try {
+      const reopened = await context.newPage();
+      const replay = capture(reopened);
+      await reopened.goto(diffle.url);
+      await expect.poll(() => activePath(reopened)).toBe(path);
+      const file = reopened.locator('diffs-container').filter({ has: reopened.locator(`[data-path="${path}"]`) });
+      await expect(file.locator(`[data-line="${line}"]`).first()).toBeInViewport();
+      await expect(reopened.locator('[data-terminal-pane="3"] :focus')).toHaveCount(1);
+      await expect(reopened.locator('[data-terminal-pane="1"] canvas')).toBeVisible();
+      await expect.poll(() => replay.get('1')).toContain(`<pid>${pid}</pid>`);
+
+      await reopened.keyboard.press('Alt+Shift+H');
+      await expect(reopened.locator('[data-terminal-pane="1"] :focus')).toHaveCount(1);
+      await reopened.keyboard.type('printf "<alive>%s:%s</alive>\\n" "$DIFFLE_SESSION" "$$"');
+      await reopened.keyboard.press('Enter');
+      await expect.poll(() => replay.get('1')).toContain(`<alive>kept:${pid}</alive>`);
+    } finally {
+      await context.close();
+    }
   });
 });

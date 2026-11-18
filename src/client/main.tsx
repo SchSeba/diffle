@@ -5,13 +5,16 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App.js';
 import './styles.css';
 import { applyTextSize } from './scale.js';
+import { flushReviewLocation, rememberReviewLocation } from './review/location.js';
 import { useStore } from './store.js';
 import { applyTheme, CODE_THEMES, HIGHLIGHTER, readTheme } from './theme.js';
 
 applyTheme(readTheme());
 useStore.subscribe((s, prev) => {
   if (s.config.textScale !== prev.config.textScale) applyTextSize(s.config.textScale);
+  rememberReviewLocation(s, prev);
 });
+window.addEventListener('pagehide', flushReviewLocation);
 
 performance.mark('diffle:boot');
 

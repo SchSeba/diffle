@@ -260,14 +260,17 @@ and Alt+Shift+H/L to focus the pane to the left/right. Use Option in place of Al
 These bindings also appear in **Keyboard shortcuts**.
 
 Each shell starts in the directory where you ran Diffle or the directory passed to `-C`.
-Hiding the panel keeps the shells running. Closing the browser tab or Diffle ends them.
+Reloading or reopening the page restores terminal tabs, splits, and the last position in the
+review while the same Diffle process is running. Shells keep running through a disconnect.
+Closing a terminal pane ends its shell. Use `--keep-alive` to keep Diffle running after its
+last browser tab closes.
 The terminal is available on a direct localhost connection. Use `--no-terminal` to disable it.
 
 Repeat `--terminal` to open tabs in order when the review loads. For example, the first tab
 below runs Codex and the second opens an interactive shell. Quote commands that contain spaces.
 
 ```sh
-diffle working --terminal=codex --terminal
+diffle working --keep-alive --terminal=codex --terminal
 ```
 
 ## Work with a coding agent

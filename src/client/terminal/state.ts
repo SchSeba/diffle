@@ -1,45 +1,53 @@
 import { create } from 'zustand';
-import { MAX_TERMINALS, type TerminalAccess } from '@/shared/protocol.js';
+import { api } from '@/client/api.js';
+import { MAX_TERMINALS, type TerminalAccess, type TerminalLayout } from '@/shared/protocol.js';
 
-interface Pane {
-  id: number;
-  startup?: number;
-}
-
-interface Tab {
-  id: number;
-  panes: Pane[];
-  activePane: number;
-}
-
-interface TerminalLayout {
+interface LayoutState extends Omit<TerminalLayout, 'updatedAt'> {
   token?: string;
-  open: boolean;
-  next: number;
-  active?: number;
-  tabs: Tab[];
   focusRequest: number;
 }
 
-export const useTerminalLayout = create<TerminalLayout>(() => ({ open: false, next: 1, tabs: [], focusRequest: 0 }));
+export const useTerminalLayout = create<LayoutState>(() => ({
+  open: false,
+  next: 1,
+  active: null,
+  tabs: [],
+  focusRequest: 0,
+}));
 
-function makeTab(id: number, startup?: number): Tab {
-  return { id, panes: [{ id, startup }], activePane: id };
-}
+let stamp = 0;
+let saved = Promise.resolve();
 
-export function configureTerminals({ token, startupTabs }: TerminalAccess): void {
+export function configureTerminals({ token, layout }: TerminalAccess): void {
   if (useTerminalLayout.getState().token === token) return;
-  const tabs = Array.from({ length: startupTabs }, (_, index) => makeTab(index + 1, index));
-  useTerminalLayout.setState({ token, tabs, active: tabs[0]?.id, next: tabs.length + 1, open: tabs.length > 0 });
+  const { updatedAt, ...rest } = layout;
+  stamp = updatedAt;
+  saved = Promise.resolve();
+  useTerminalLayout.setState({ token, ...rest });
 }
 
-export function hasTerminalRoom(tabs: Tab[]): boolean {
+useTerminalLayout.subscribe(({ token, open, next, active, tabs }, prev) => {
+  if (!token || token !== prev.token) return;
+  if (open === prev.open && next === prev.next && active === prev.active && tabs === prev.tabs) return;
+  stamp = Math.max(stamp + 1, Math.floor((performance.timeOrigin + performance.now()) * 1000));
+  saved = api.saveTerminalLayout(token, { open, next, active, tabs, updatedAt: stamp });
+  void saved.catch(() => {});
+});
+
+/** A newly rendered pane can attach once its ID is part of the server layout. */
+export function terminalLayoutSaved(): Promise<void> {
+  return saved;
+}
+
+export function hasTerminalRoom(tabs: TerminalLayout['tabs']): boolean {
   return tabs.reduce((count, tab) => count + tab.panes.length, 0) < MAX_TERMINALS;
 }
 
 export function addTerminal(): void {
   useTerminalLayout.setState((s) =>
-    hasTerminalRoom(s.tabs) ? { next: s.next + 1, tabs: [...s.tabs, makeTab(s.next)], active: s.next } : s,
+    hasTerminalRoom(s.tabs)
+      ? { next: s.next + 1, tabs: [...s.tabs, { id: s.next, panes: [s.next], activePane: s.next }], active: s.next }
+      : s,
   );
 }
 
@@ -51,7 +59,7 @@ export function closeTerminal(id: number): void {
   useTerminalLayout.setState(({ active, tabs }) => {
     const index = tabs.findIndex((tab) => tab.id === id);
     const remaining = tabs.filter((tab) => tab.id !== id);
-    return { tabs: remaining, active: id === active ? (remaining[index] ?? remaining.at(-1))?.id : active };
+    return { tabs: remaining, active: id === active ? ((remaining[index] ?? remaining.at(-1))?.id ?? null) : active };
   });
 }
 
@@ -62,9 +70,9 @@ export function splitTerminal(): void {
       next: s.next + 1,
       tabs: s.tabs.map((tab) => {
         if (tab.id !== s.active) return tab;
-        const at = tab.panes.findIndex((pane) => pane.id === tab.activePane) + 1;
+        const at = tab.panes.indexOf(tab.activePane) + 1;
         const panes = [...tab.panes];
-        panes.splice(at, 0, { id: s.next });
+        panes.splice(at, 0, s.next);
         return { ...tab, panes, activePane: s.next };
       }),
     };
@@ -75,9 +83,9 @@ export function closeTerminalPane(): void {
   useTerminalLayout.setState((s) => ({
     tabs: s.tabs.map((tab) => {
       if (tab.id !== s.active || tab.panes.length < 2) return tab;
-      const at = tab.panes.findIndex((pane) => pane.id === tab.activePane);
-      const panes = tab.panes.filter((pane) => pane.id !== tab.activePane);
-      return { ...tab, panes, activePane: (panes[at] ?? panes.at(-1))!.id };
+      const at = tab.panes.indexOf(tab.activePane);
+      const panes = tab.panes.filter((pane) => pane !== tab.activePane);
+      return { ...tab, panes, activePane: (panes[at] ?? panes.at(-1))! };
     }),
   }));
 }
@@ -85,7 +93,7 @@ export function closeTerminalPane(): void {
 export function selectTerminalPane(id: number): void {
   useTerminalLayout.setState((s) => {
     const tab = s.tabs.find((tab) => tab.id === s.active);
-    if (!tab || tab.activePane === id || !tab.panes.some((pane) => pane.id === id)) return s;
+    if (!tab || tab.activePane === id || !tab.panes.includes(id)) return s;
     return { tabs: s.tabs.map((entry) => (entry === tab ? { ...tab, activePane: id } : entry)) };
   });
 }
@@ -110,9 +118,9 @@ export function moveTerminalFocus(code: string): boolean {
     return true;
   }
   if (code === 'KeyH' || code === 'KeyL') {
-    const current = tab.panes.findIndex((pane) => pane.id === tab.activePane);
+    const current = tab.panes.indexOf(tab.activePane);
     const neighbor = tab.panes[current + (code === 'KeyL' ? 1 : -1)];
-    if (neighbor) selectTerminalPane(neighbor.id);
+    if (neighbor) selectTerminalPane(neighbor);
     useTerminalLayout.setState({ focusRequest: focusRequest + 1 });
     return true;
   }

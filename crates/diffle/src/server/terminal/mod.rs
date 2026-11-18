@@ -1,20 +1,24 @@
-//! Local browser terminals. Each socket owns one PTY and its lifetime.
+//! Local browser terminals. The server owns the layout and PTYs for the lifetime of the run.
 mod pty;
+mod session;
 
+use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
-use axum::Router;
-use axum::extract::ws::{Message, WebSocket};
+use axum::extract::ws::{CloseFrame, Message, WebSocket, close_code};
 use axum::extract::{Query, State, WebSocketUpgrade};
 use axum::http::{HeaderMap, StatusCode, header, uri::Authority};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
+use axum::{Json, Router};
 use serde::Deserialize;
 use tokio::sync::{Semaphore, watch};
 
-use crate::protocol::{TerminalAccess, TerminalResize, TerminalStatus};
+use self::session::{Input, Pane};
+use crate::protocol::{TerminalAccess, TerminalLayout, TerminalReplay, TerminalResize, TerminalTab};
 
 const FRAME_LIMIT: usize = 64 * 1024;
 pub const MAX_TERMINALS: usize = 12;
@@ -26,19 +30,36 @@ struct Terminals {
     token: String,
     slots: Arc<Semaphore>,
     shutdown: watch::Receiver<bool>,
+    workspace: Mutex<Workspace>,
+}
+
+struct Workspace {
+    layout: TerminalLayout,
+    running: HashMap<i64, Arc<Pane>>,
 }
 
 pub(super) fn router(dir: PathBuf, commands: Vec<String>, port: u16, shutdown: watch::Receiver<bool>) -> Router {
+    let tabs: Vec<_> =
+        (1..=commands.len() as i64).map(|id| TerminalTab { id, panes: vec![id], active_pane: id }).collect();
+    let layout = TerminalLayout {
+        updated_at: 0,
+        active: tabs.first().map(|tab| tab.id),
+        open: !tabs.is_empty(),
+        next: tabs.len() as i64 + 1,
+        tabs,
+    };
     let state = Arc::new(Terminals {
         port,
         dir,
         commands,
         token: uuid::Uuid::new_v4().to_string(),
-        slots: Arc::new(Semaphore::new(MAX_TERMINALS)),
+        slots: Arc::new(Semaphore::new(2 * MAX_TERMINALS)),
         shutdown,
+        workspace: Mutex::new(Workspace { layout, running: HashMap::new() }),
     });
     Router::new()
         .route("/api/terminal/access", post(access))
+        .route("/api/terminal/layout", put(set_layout))
         .route("/api/terminal/socket", get(connect))
         .with_state(state)
 }
@@ -57,43 +78,90 @@ async fn access(State(state): State<Arc<Terminals>>, headers: HeaderMap) -> Resp
     if !same_origin(&headers, state.port) {
         return StatusCode::FORBIDDEN.into_response();
     }
-    let access = TerminalAccess { token: state.token.clone(), startup_tabs: state.commands.len() as i64 };
+    let access = TerminalAccess { token: state.token.clone(), layout: state.workspace.lock().unwrap().layout.clone() };
     ([(header::CACHE_CONTROL, "no-store")], axum::Json(access)).into_response()
 }
 
 #[derive(Deserialize)]
 struct Capability {
     token: String,
-    startup: Option<usize>,
+}
+
+#[derive(Deserialize)]
+struct Connection {
+    token: String,
+    pane: i64,
+}
+
+fn pane_ids(layout: &TerminalLayout) -> impl Iterator<Item = i64> + '_ {
+    layout.tabs.iter().flat_map(|tab| tab.panes.iter().copied())
+}
+
+fn valid_layout(layout: &TerminalLayout) -> Option<HashSet<i64>> {
+    let mut ids = HashSet::new();
+    let mut tabs = HashSet::new();
+    for tab in &layout.tabs {
+        if tab.id <= 0 || tab.id >= layout.next || !tabs.insert(tab.id) || !tab.panes.contains(&tab.active_pane) {
+            return None;
+        }
+        for id in &tab.panes {
+            if *id <= 0 || *id >= layout.next || !ids.insert(*id) || ids.len() > MAX_TERMINALS {
+                return None;
+            }
+        }
+    }
+    (layout.next > 0 && layout.active.map_or(tabs.is_empty(), |id| tabs.contains(&id))).then_some(ids)
+}
+
+async fn set_layout(
+    State(state): State<Arc<Terminals>>,
+    Query(capability): Query<Capability>,
+    headers: HeaderMap,
+    Json(layout): Json<TerminalLayout>,
+) -> StatusCode {
+    if !same_origin(&headers, state.port) || capability.token != state.token {
+        return StatusCode::FORBIDDEN;
+    }
+    let Some(ids) = valid_layout(&layout) else { return StatusCode::BAD_REQUEST };
+    let mut workspace = state.workspace.lock().unwrap();
+    if layout.updated_at <= workspace.layout.updated_at {
+        return StatusCode::NO_CONTENT;
+    }
+    let old_ids: HashSet<_> = pane_ids(&workspace.layout).collect();
+    if layout.next < workspace.layout.next || ids.iter().any(|id| *id < workspace.layout.next && !old_ids.contains(id))
+    {
+        return StatusCode::CONFLICT;
+    }
+    workspace.running.retain(|id, pane| {
+        if ids.contains(id) {
+            return true;
+        }
+        pane.closed.send_replace(true);
+        false
+    });
+    workspace.layout = layout;
+    StatusCode::NO_CONTENT
 }
 
 async fn connect(
     State(state): State<Arc<Terminals>>,
-    Query(capability): Query<Capability>,
+    Query(connection): Query<Connection>,
     headers: HeaderMap,
     upgrade: WebSocketUpgrade,
 ) -> Response {
-    if !same_origin(&headers, state.port) || capability.token != state.token {
+    if !same_origin(&headers, state.port) || connection.token != state.token {
         return StatusCode::FORBIDDEN.into_response();
     }
-    let command = match capability.startup {
-        Some(index) => match state.commands.get(index) {
-            Some(command) if command.is_empty() => None,
-            Some(command) => Some(command.clone()),
-            None => return StatusCode::BAD_REQUEST.into_response(),
-        },
-        None => None,
-    };
     let Ok(slot) = state.slots.clone().try_acquire_owned() else {
         return StatusCode::TOO_MANY_REQUESTS.into_response();
     };
     upgrade.max_frame_size(FRAME_LIMIT).max_message_size(FRAME_LIMIT).on_upgrade(move |socket| async move {
         let _slot = slot;
-        serve(socket, state, command).await;
+        serve(socket, state, connection.pane).await;
     })
 }
 
-async fn serve(mut socket: WebSocket, state: Arc<Terminals>, command: Option<String>) {
+async fn serve(mut socket: WebSocket, state: Arc<Terminals>, id: i64) {
     let mut shutdown = state.shutdown.clone();
     let first = tokio::select! {
         _ = async { let _ = shutdown.wait_for(|stopped| *stopped).await; } => return,
@@ -101,36 +169,61 @@ async fn serve(mut socket: WebSocket, state: Arc<Terminals>, command: Option<Str
     };
     let Ok(Some(Ok(Message::Text(first)))) = first else { return };
     let Some(size) = resize(&first) else { return };
-    let dir = state.dir.clone();
-    let opened = tokio::task::spawn_blocking(move || pty::Terminal::open(&dir, size, command.as_deref())).await;
-    let mut terminal = match opened {
-        Ok(Ok(terminal)) => terminal,
-        Ok(Err(error)) => {
-            let _ = status(&mut socket, Some(error.to_string()), None).await;
+    let pane = {
+        let mut workspace = state.workspace.lock().unwrap();
+        let exists = pane_ids(&workspace.layout).any(|pane| pane == id);
+        exists.then(|| {
+            let resuming = workspace.running.contains_key(&id);
+            let pane = workspace
+                .running
+                .entry(id)
+                .or_insert_with(|| {
+                    let command = state.commands.get(id as usize - 1).filter(|command| !command.is_empty()).cloned();
+                    Pane::start(state.dir.clone(), size, command, state.shutdown.clone())
+                })
+                .clone();
+            (pane, resuming)
+        })
+    };
+    let Some((pane, resuming)) = pane else {
+        close_pane(&mut socket).await;
+        return;
+    };
+    let mut closed = pane.closed.subscribe();
+    let (replay, mut output) = pane.subscribe();
+    let _ = pane.input.try_send(Input::Resize(size));
+    if resuming {
+        let replay_chunks = replay.iter().filter(|frame| matches!(frame, Message::Binary(_))).count() as i64;
+        let marker = serde_json::to_string(&TerminalReplay { replay_chunks }).expect("terminal replay serializes");
+        if !send(&mut socket, Message::Text(marker.into())).await {
             return;
         }
-        Err(_) => return,
-    };
+    }
+    for frame in replay {
+        if !send(&mut socket, frame).await {
+            return;
+        }
+    }
     loop {
         tokio::select! {
-            _ = async { let _ = shutdown.wait_for(|stopped| *stopped).await; } => break,
-            output = terminal.output.recv() => {
-                let Some(output) = output else {
-                    let exit = tokio::time::timeout(std::time::Duration::from_secs(1), terminal.wait()).await.ok().flatten();
-                    let _ = status(&mut socket, None, exit).await;
-                    break;
-                };
-                if !matches!(tokio::time::timeout(std::time::Duration::from_secs(1), socket.send(Message::Binary(output.into()))).await, Ok(Ok(()))) {
-                    break;
-                }
+            _ = async { drop(shutdown.wait_for(|stopped| *stopped).await) } => break,
+            _ = async { drop(closed.wait_for(|closed| *closed).await) } => {
+                close_pane(&mut socket).await;
+                break;
+            },
+            frame = output.recv() => {
+                let Ok(frame) = frame else { break };
+                if !send(&mut socket, frame).await { break }
             }
             input = socket.recv() => match input {
                 Some(Ok(Message::Binary(bytes))) => {
-                    if terminal.input.try_send(bytes).is_err() { break }
+                    if tokio::time::timeout(Duration::from_secs(1), pane.input.send(Input::Bytes(bytes))).await.is_err() {
+                        break;
+                    }
                 }
                 Some(Ok(Message::Text(text))) => {
                     let Some(size) = resize(&text) else { break };
-                    if terminal.master.resize(size).is_err() { break }
+                    let _ = pane.input.try_send(Input::Resize(size));
                 }
                 Some(Ok(Message::Ping(_) | Message::Pong(_))) => {}
                 _ => break,
@@ -139,9 +232,12 @@ async fn serve(mut socket: WebSocket, state: Arc<Terminals>, command: Option<Str
     }
 }
 
-async fn status(socket: &mut WebSocket, error: Option<String>, exit_code: Option<i64>) -> Result<(), axum::Error> {
-    let text = serde_json::to_string(&TerminalStatus { error, exit_code }).expect("terminal status serializes");
-    socket.send(Message::Text(text.into())).await
+async fn send(socket: &mut WebSocket, message: Message) -> bool {
+    matches!(tokio::time::timeout(Duration::from_secs(1), socket.send(message)).await, Ok(Ok(())))
+}
+
+async fn close_pane(socket: &mut WebSocket) {
+    send(socket, Message::Close(Some(CloseFrame { code: close_code::POLICY, reason: "Terminal closed".into() }))).await;
 }
 
 fn resize(text: &str) -> Option<portable_pty::PtySize> {

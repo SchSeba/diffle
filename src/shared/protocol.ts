@@ -1294,17 +1294,41 @@ export type Activity = z.infer<typeof ActivitySchema>;
 export const ApiErrorSchema = z.object({ error: z.string() });
 
 export const MAX_TERMINALS = 12;
+export const TerminalTabSchema = z.object({
+  id: z.number().int(),
+  panes: z.number().int().array(),
+  activePane: z.number().int(),
+});
+export const TerminalLayoutSchema = z.object({
+  updatedAt: z.number().int(),
+  open: z.boolean(),
+  next: z.number().int(),
+  active: z.number().int().nullable(),
+  tabs: TerminalTabSchema.array(),
+});
+export type TerminalLayout = z.infer<typeof TerminalLayoutSchema>;
 export const TerminalAccessSchema = z.object({
   token: z.string(),
-  startupTabs: z.number().int(),
+  layout: TerminalLayoutSchema,
 });
 export type TerminalAccess = z.infer<typeof TerminalAccessSchema>;
+
+export const ReviewLocationSchema = z.object({
+  updatedAt: z.number().int(),
+  commentKey: z.string(),
+  path: z.string(),
+  line: z.number().int().nullable(),
+  side: SideSchema,
+  full: z.boolean(),
+});
+export type ReviewLocation = z.infer<typeof ReviewLocationSchema>;
 
 export const TerminalResizeSchema = z.object({
   cols: z.number().int().min(1).max(500),
   rows: z.number().int().min(1).max(300),
 });
 
+export const TerminalReplaySchema = z.object({ replayChunks: z.number().int().nonnegative() });
 export const TerminalStatusSchema = z.object({
   error: z.string().optional(),
   exitCode: z.number().int().optional(),

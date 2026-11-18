@@ -3,8 +3,9 @@ import type { Terminal } from 'ghostty-web';
 import { connectTerminal } from '@/client/api.js';
 import { useRemPx } from '@/client/scale.js';
 import { useStore } from '@/client/store.js';
-import { TerminalResizeSchema, TerminalStatusSchema } from '@/shared/protocol.js';
+import { TerminalReplaySchema, TerminalResizeSchema, TerminalStatusSchema } from '@/shared/protocol.js';
 import { loadTerminalFonts, terminalFont, terminalPalette } from './appearance.js';
+import { terminalLayoutSaved } from './state.js';
 
 const loadGhostty = async () => {
   const [lib, { default: wasmUrl }] = await Promise.all([
@@ -18,12 +19,12 @@ let loading: ReturnType<typeof loadGhostty> | undefined;
 
 export function TerminalSurface({
   token,
-  startup,
+  pane,
   active,
   focusRequest,
 }: {
   token: string;
-  startup?: number;
+  pane: number;
   active: boolean;
   focusRequest: number;
 }) {
@@ -53,6 +54,7 @@ export function TerminalSurface({
         throw error;
       });
       const [{ lib, ghostty }] = await Promise.all([loading, loadTerminalFonts()]);
+      await terminalLayoutSaved();
       if (cancelled) return;
       const size = () => savedSize.current ?? Number.parseFloat(getComputedStyle(host).fontSize);
       const term = new lib.Terminal({
@@ -68,9 +70,16 @@ export function TerminalSurface({
       term.loadAddon(fit);
       term.open(host);
       terminal.current = term;
-      const ws = connectTerminal(token, startup);
+      let ws: WebSocket | undefined;
+      let reconnect: ReturnType<typeof setTimeout> | undefined;
+      let reconnectDelay = 250;
+      let opened = false;
+      let exited = false;
+      let replayChunks = 0;
+      let replaying = false;
       cleanup = () => {
-        ws.close();
+        clearTimeout(reconnect);
+        ws?.close();
         terminal.current = null;
         term.dispose();
       };
@@ -92,35 +101,65 @@ export function TerminalSurface({
         dispose();
       };
       const sendSize = () => {
-        if (ws.readyState !== WebSocket.OPEN) return;
+        if (ws?.readyState !== WebSocket.OPEN) return;
         const size = TerminalResizeSchema.parse({ cols: term.cols, rows: term.rows });
         ws.send(JSON.stringify(size));
       };
       term.onResize(sendSize);
       const encoder = new TextEncoder();
       term.onData((data) => {
-        if (ws.readyState !== WebSocket.OPEN) return;
+        if (replaying || exited || ws?.readyState !== WebSocket.OPEN) return;
         const bytes = encoder.encode(data);
         for (let offset = 0; offset < bytes.length; offset += 32 * 1024) {
           ws.send(bytes.subarray(offset, offset + 32 * 1024));
         }
       });
-      ws.onopen = () => {
-        sendSize();
-        if (focused.current && host.offsetParent !== null && !host.closest('[inert]')) term.focus();
-        setStatus('');
+      const attach = () => {
+        const socket = connectTerminal(token, pane);
+        ws = socket;
+        socket.onopen = () => {
+          replayChunks = 0;
+          if (opened) term.reset();
+          opened = true;
+          sendSize();
+          if (focused.current && host.offsetParent !== null && !host.closest('[inert]'))
+            host.focus({ preventScroll: true });
+          setStatus('');
+        };
+        socket.onmessage = ({ data }: MessageEvent<unknown>) => {
+          if (data instanceof ArrayBuffer) {
+            reconnectDelay = 250;
+            replaying = replayChunks > 0;
+            try {
+              term.write(new Uint8Array(data));
+            } finally {
+              replayChunks = Math.max(0, replayChunks - 1);
+              replaying = false;
+            }
+          } else if (typeof data === 'string') {
+            const message: unknown = JSON.parse(data);
+            const replay = TerminalReplaySchema.safeParse(message);
+            if (replay.success) {
+              replayChunks = replay.data.replayChunks;
+              return;
+            }
+            exited = true;
+            const result = TerminalStatusSchema.parse(message);
+            setStatus(result.error ?? `Shell exited${result.exitCode == null ? '' : ` (${result.exitCode})`}`);
+          }
+        };
+        socket.onclose = (event) => {
+          if (cancelled || exited) return;
+          if (event.code === 1008) {
+            setStatus(event.reason || 'Terminal closed');
+            return;
+          }
+          setStatus('Reconnecting…');
+          reconnect = setTimeout(attach, reconnectDelay);
+          reconnectDelay = Math.min(5000, reconnectDelay * 2);
+        };
       };
-      ws.onmessage = ({ data }: MessageEvent<unknown>) => {
-        if (data instanceof ArrayBuffer) term.write(new Uint8Array(data));
-        else if (typeof data === 'string') {
-          const result = TerminalStatusSchema.parse(JSON.parse(data));
-          setStatus(result.error ?? `Shell exited${result.exitCode == null ? '' : ` (${result.exitCode})`}`);
-        }
-      };
-      ws.onclose = () => {
-        if (!cancelled) setStatus((current) => current || 'Terminal disconnected');
-      };
-      ws.onerror = () => setStatus('Terminal connection failed');
+      attach();
     }
 
     void start(host).catch((error: unknown) => {
@@ -130,11 +169,11 @@ export function TerminalSurface({
       cancelled = true;
       cleanup?.();
     };
-  }, [token, startup]);
+  }, [token, pane]);
 
   useEffect(() => {
     focused.current = active;
-    if (active) terminal.current?.focus();
+    if (active && terminal.current) container.current?.focus({ preventScroll: true });
   }, [active, focusRequest]);
 
   return (

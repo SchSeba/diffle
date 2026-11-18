@@ -129,15 +129,15 @@ export function TerminalPanel() {
           inert={!open || tab.id !== active}
         >
           {tab.panes.map((pane) => {
-            const focused = open && tab.id === active && tab.activePane === pane.id;
+            const focused = open && tab.id === active && tab.activePane === pane;
             return (
               <div
-                key={pane.id}
+                key={pane}
                 className="relative flex min-w-0 flex-1 overflow-hidden"
-                onFocusCapture={() => selectTerminalPane(pane.id)}
-                data-terminal-pane={pane.id}
+                onFocusCapture={() => selectTerminalPane(pane)}
+                data-terminal-pane={pane}
               >
-                <TerminalSurface token={token} startup={pane.startup} active={focused} focusRequest={focusRequest} />
+                <TerminalSurface token={token} pane={pane} active={focused} focusRequest={focusRequest} />
                 {tab.panes.length > 1 && focused && (
                   <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-px bg-accent" />
                 )}

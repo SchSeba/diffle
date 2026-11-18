@@ -9,6 +9,7 @@ import { useRemPx } from './scale.js';
 import { ServerLost } from './ServerLost.js';
 import { useStore } from './store.js';
 import { TerminalPanel } from './terminal/TerminalPanel.js';
+import { restoreReviewLocation } from './review/location.js';
 import { FileTreePane } from './tree/FileTreePane.js';
 import { refreshTour } from './tour/state.js';
 import { TooltipHost } from './ui/TitleTooltips.js';
@@ -70,15 +71,19 @@ export function App() {
   const columns = gridColumns(layout, active);
 
   useEffect(() => {
+    const loadReview = async () => {
+      await boot();
+      await restoreReviewLocation(useStore.getState);
+    };
     // Boot without waiting for the socket: Firefox holds a new socket back while another one to the
     // same host hangs connecting, such as another tab's reconnect to a frozen server, for up to 20 s.
-    void boot().then(() => performance.mark('diffle:snapshot'));
+    void loadReview().then(() => performance.mark('diffle:snapshot'));
     // Every connection, the first included, resyncs the whole state: pushes sent before it
     // subscribed are not replayed.
     let connected = false;
     const resync = () => {
       setLost(false);
-      void boot();
+      void loadReview();
       // A push missed while disconnected still shows; the first connection loads without it.
       void refreshTour({ reveal: connected });
       connected = true;
