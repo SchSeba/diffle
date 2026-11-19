@@ -1390,6 +1390,7 @@ export const GithubCommentMessageSchema = z.object({
   url: z.string().url(),
   state: z.string().optional(),
   canDelete: z.boolean().optional(),
+  canEdit: z.boolean(),
   isOwnPending: z.boolean(),
 });
 
@@ -1398,6 +1399,11 @@ export const GithubPendingCommentDeleteSchema = z.object({
   prUrl: z.string(),
 });
 export type GithubPendingCommentDelete = z.infer<typeof GithubPendingCommentDeleteSchema>;
+
+export const GithubPendingCommentEditSchema = GithubPendingCommentDeleteSchema.extend({
+  body: z.string().trim().min(1),
+});
+export type GithubPendingCommentEdit = z.infer<typeof GithubPendingCommentEditSchema>;
 
 export const GithubThreadReplySchema = GithubPendingCommentDeleteSchema.extend({
   body: z.string().trim().min(1),

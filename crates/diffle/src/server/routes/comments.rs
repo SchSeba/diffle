@@ -39,7 +39,7 @@ pub fn routes() -> Router<Arc<ApiDeps>> {
         .route("/api/threads/{id}/messages/{mid}/export", get(export_message))
         .route("/api/github/export", post(github_export))
         .route("/api/github/comment", post(github_comment))
-        .route("/api/github/comments", get(github_comments).delete(delete_github_comment))
+        .route("/api/github/comments", get(github_comments).patch(edit_github_comment).delete(delete_github_comment))
         .route("/api/github/thread/reply", post(github_thread_reply))
         .route("/api/github/thread/resolved", put(github_thread_resolved))
         .route("/api/github/review", post(github_review))
@@ -118,7 +118,7 @@ async fn reply(State(d): State<Arc<ApiDeps>>, Path(id): Path<String>, raw: Bytes
 
 async fn edit_message(State(d): State<Arc<ApiDeps>>, Path((id, mid)): Path<(String, String)>, raw: Bytes) -> ApiResult {
     let req: MessagePatch = body(&raw)?;
-    let thread = d.session.comments()?.edit_message(&id, &mid, req.body).await?;
+    let thread = d.session.comments()?.edit_message(&id, &mid, req.body, req.author).await?;
     changed(&d, [(req.author, id)]);
     Ok(Json(thread).into_response())
 }
@@ -247,6 +247,11 @@ async fn delete_github_comment(State(d): State<Arc<ApiDeps>>, raw: Bytes) -> Api
 
 async fn github_comments(State(d): State<Arc<ApiDeps>>) -> ApiResult {
     Ok(Json(d.session.github_comments().await?).into_response())
+}
+
+async fn edit_github_comment(State(d): State<Arc<ApiDeps>>, raw: Bytes) -> ApiResult {
+    d.session.edit_github_pending_comment(body(&raw)?).await?;
+    Ok(StatusCode::NO_CONTENT.into_response())
 }
 
 async fn github_thread_reply(State(d): State<Arc<ApiDeps>>, raw: Bytes) -> ApiResult {

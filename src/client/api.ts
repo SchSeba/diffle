@@ -20,6 +20,7 @@ import {
   GithubCommentRequestSchema,
   GithubCommentsSchema,
   GithubPendingCommentDeleteSchema,
+  GithubPendingCommentEditSchema,
   GithubReviewSubmitSchema,
   GithubThreadReplySchema,
   GithubThreadResolutionSchema,
@@ -90,13 +91,15 @@ import type { Side } from '@/shared/side.js';
 
 // The only module that knows URLs.
 
-function githubWrite<T>(response: z.ZodType<T>, path: string, method: 'POST' | 'PUT' | 'DELETE', body: string) {
+function githubWrite<T>(response: z.ZodType<T>, path: string, method: string, body: string) {
   return json(response, `api/github/${path}`, { method, body }).then(githubCommentsChanged);
 }
 
 export const api = {
   deleteGithubPendingComment: (id: string, prUrl: string) =>
     githubWrite(z.undefined(), 'comments', 'DELETE', encode(GithubPendingCommentDeleteSchema, { id, prUrl })),
+  editGithubPendingComment: (id: string, prUrl: string, body: string) =>
+    githubWrite(z.undefined(), 'comments', 'PATCH', encode(GithubPendingCommentEditSchema, { id, prUrl, body })),
   githubComments: (signal: AbortSignal) => json(GithubCommentsSchema, 'api/github/comments', { signal }),
   replyGithubThread: (id: string, prUrl: string, body: string) =>
     githubWrite(z.undefined(), 'thread/reply', 'POST', encode(GithubThreadReplySchema, { id, prUrl, body })),

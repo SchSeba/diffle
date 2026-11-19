@@ -17,6 +17,7 @@ function comment(id: string, body: string, login = 'reviewer', pending = false) 
     state: pending ? 'PENDING' : 'SUBMITTED',
     viewerDidAuthor: login === 'reviewer',
     viewerCanDelete: pending,
+    viewerCanUpdate: pending,
     databaseId: Number(id),
     pullRequest: { url: prUrl },
   };
@@ -114,6 +115,13 @@ export async function githubFixture(repo: string) {
       return { node: item ? { ...item, ...permissions(item), pullRequest: pull } : null };
     }
     if (query.includes('on PullRequestReviewComment')) return { node: all().find((item) => item.id === variables.id) };
+    if (query.includes('updatePullRequestReviewComment(')) {
+      const target = all().find((item) => item.id === input.pullRequestReviewCommentId && item.state === 'PENDING');
+      if (target && input.body?.trim()) {
+        target.body = input.body;
+        return { updatePullRequestReviewComment: { pullRequestReviewComment: { id: target.id } } };
+      }
+    }
     if (
       query.includes('addPullRequestReview(') &&
       !reviewId &&
@@ -154,6 +162,7 @@ export async function githubFixture(repo: string) {
       for (const item of comments) {
         item.state = 'SUBMITTED';
         item.viewerCanDelete = false;
+        item.viewerCanUpdate = false;
       }
       const submittedId = reviewId;
       reviewId = null;
@@ -213,6 +222,7 @@ interface ParametersForGithub {
       commitOID?: string;
       pullRequestReviewId?: string;
       pullRequestReviewThreadId?: string;
+      pullRequestReviewCommentId?: string;
       threadId?: string;
       body?: string;
       event?: string;

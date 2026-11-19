@@ -1057,3 +1057,30 @@ async fn pending_comment_deletion_requires_the_viewer_to_own_the_draft_on_this_p
         }
     }
 }
+
+#[tokio::test]
+async fn pending_comment_edits_require_ownership_and_preserve_the_export_marker() {
+    use diffle::github::comments::pending_comment_edit;
+    for (state, author, permission, url, allowed) in [
+        ("PENDING", true, true, PR_URL, true),
+        ("SUBMITTED", true, true, PR_URL, false),
+        ("PENDING", false, true, PR_URL, false),
+        ("PENDING", true, false, PR_URL, false),
+        ("PENDING", true, true, "https://github.com/o/r/pull/8", false),
+    ] {
+        let github = FakeGithub::new(move |query, variables| async move {
+            assert!(query.contains("viewerCanUpdate"));
+            assert_eq!(variables, json!({"id":"PRRC_a"}));
+            Ok(json!({"node": {
+                "body":"Old draft\n\n<!-- diffle-thread:one%20two -->",
+                "state":state, "viewerDidAuthor":author, "viewerCanUpdate":permission, "pullRequest":{"url":url}
+            }}))
+        });
+        let result = pending_comment_edit(&github, PR_URL, "PRRC_a", "New draft").await;
+        if allowed {
+            assert_eq!(result.unwrap(), "New draft\n\n<!-- diffle-thread:one%20two -->");
+        } else {
+            assert_eq!(result.unwrap_err().status, 409);
+        }
+    }
+}

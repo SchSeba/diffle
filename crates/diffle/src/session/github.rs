@@ -10,7 +10,7 @@ use crate::error::{Error, GithubError, Result};
 use crate::github::client::{GithubClient, no_token};
 use crate::github::comments;
 use crate::github::metadata::discover_github;
-use crate::github::pending_review::{create_pending_review, find_pending_review};
+use crate::github::pending_review::{create_pending_review, find_pending_review, update_comment};
 use crate::github::permalink::permalink;
 use crate::github::review::ExportInput;
 use crate::github::submit_review::submit_review;
@@ -108,6 +108,22 @@ impl Session {
         }
         let (owner, repo) = crate::github::pulls::repo_of_pr_url(&pr.url)?;
         client.delete_review_comment(&owner, &repo, database_id).await?;
+        Ok(())
+    }
+
+    pub async fn edit_github_pending_comment(&self, request: crate::protocol::GithubPendingCommentEdit) -> Result<()> {
+        let body = request.body.trim();
+        if body.is_empty() {
+            return Err(Error::Invalid("GitHub comment cannot be empty".into()));
+        }
+        let _turn = self.exporter.turn().await;
+        let active = self.active()?;
+        let (pr, client) = self.github_comment_target(&active.review, Some(&request.pr_url))?;
+        let body = comments::pending_comment_edit(client, &pr.url, &request.id, body).await?;
+        if !self.is_active(&active) {
+            return Err(changed().into());
+        }
+        update_comment(client, &request.id, &body).await?;
         Ok(())
     }
 

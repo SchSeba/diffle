@@ -102,6 +102,31 @@ test('resolves and reopens a thread from the comments panel', async ({ page, dif
   await expect.poll(async () => (await readThreads(diffle.url))[0]?.resolved).toBe(false);
 });
 
+test('edits only the latest reviewer message in a local thread', async ({ page, diffle }) => {
+  const path = 'tally/ledger.py';
+  const [thread] = await seedThreads(diffle.url, [{ path, startLine: 4, body: 'Original reviewer comment' }]);
+  await gotoFile(page, path);
+  const code = page.locator('.codeview');
+  const edit = code.getByRole('button', { name: 'Edit (e)', exact: true });
+  await expect(edit).toHaveCount(1);
+
+  await seedReply(diffle.url, thread!.id, { body: 'Agent response', author: 'agent' });
+  await expect(code.getByText('Agent response')).toBeVisible();
+  await expect(edit).toHaveCount(0);
+
+  await seedReply(diffle.url, thread!.id, { body: 'My follow-up' });
+  await expect(code.getByText('My follow-up')).toBeVisible();
+  await expect(edit).toHaveCount(1);
+  await edit.click();
+  const editor = code.getByRole('textbox');
+  await expect(editor).toHaveValue('My follow-up');
+  await editor.fill('Updated reviewer message');
+  await editor.press('Control+Enter');
+  await expect(code.getByText('Updated reviewer message')).toBeVisible();
+  await expect(code.getByText('Agent response')).toBeVisible();
+  await expect(code.getByText('Original reviewer comment')).toBeVisible();
+});
+
 test.describe('a stale local thread', () => {
   test.use({ revs: ['working'] });
 

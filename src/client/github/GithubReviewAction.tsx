@@ -175,7 +175,7 @@ function PendingComments({ prUrl, submitting }: { prUrl: string; submitting: boo
                 {thread.path}
                 {(thread.line ?? thread.originalLine) == null ? '' : `:${thread.line ?? thread.originalLine}`}
               </div>
-              <GithubComment message={message} prUrl={prUrl} path={thread.path} allowDelete={!submitting} />
+              <GithubComment message={message} prUrl={prUrl} path={thread.path} allowChanges={!submitting} />
             </li>
           ))}
         </ul>

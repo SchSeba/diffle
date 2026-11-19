@@ -3,6 +3,7 @@ import { Markdown } from '@/client/Markdown.js';
 import { CommentDate } from '@/client/comments/CommentDate.js';
 import type { GithubCommentMessage } from '@/shared/protocol.js';
 import { GithubPendingDelete } from './GithubPendingDelete.js';
+import { GithubPendingEdit } from './GithubPendingEdit.js';
 
 const states: Record<string, string> = {
   PENDING: 'Pending',
@@ -16,13 +17,13 @@ export function GithubComment({
   prUrl,
   path,
   onOpen,
-  allowDelete = true,
+  allowChanges = true,
 }: {
   message: GithubCommentMessage;
   prUrl: string;
   path?: string;
   onOpen?: () => void;
-  allowDelete?: boolean;
+  allowChanges?: boolean;
 }) {
   const state = message.state && states[message.state];
   const href = /^https?:\/\//i.test(message.url) ? message.url : undefined;
@@ -55,7 +56,8 @@ export function GithubComment({
             <ExternalLink size="0.75rem" />
           </a>
         )}
-        {allowDelete && <GithubPendingDelete prUrl={prUrl} message={message} />}
+        {allowChanges && message.canEdit && <GithubPendingEdit prUrl={prUrl} id={message.id} body={body} />}
+        {allowChanges && <GithubPendingDelete prUrl={prUrl} message={message} />}
       </div>
       {onOpen ? (
         <div

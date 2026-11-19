@@ -43,7 +43,8 @@ import { hoverOnly, joinedBy, lspBlocker } from '@/shared/lsp.js';
 import { api } from './api.js';
 import { isNotFound } from './http.js';
 import { anchorFromRange, sideOf } from './comments/anchor.js';
-import { anchorPath } from './comments/threads.js';
+import { anchorPath, editableThreadMessage } from './comments/threads.js';
+import { localThreadKey, setInlineExpanded } from './comments/inlineExpansion.js';
 import {
   buildNav,
   cursorFromSelection,
@@ -2327,8 +2328,11 @@ export const useStore = create<ReviewState>((set, get) => {
     },
     editCommentAtCursor() {
       const t = threadAtCursor();
-      const last = t?.messages[t.messages.length - 1];
-      if (last) get().setEditingId(last.id);
+      if (!t || t.stale) return;
+      const last = editableThreadMessage(t);
+      if (!last) return;
+      setInlineExpanded(localThreadKey(t.id), true, !t.resolved);
+      get().setEditingId(last.id);
     },
     async deleteCommentAtCursor() {
       const t = threadAtCursor();

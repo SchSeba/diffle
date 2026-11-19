@@ -91,6 +91,14 @@ test('replies, changes resolution from both panels, collapses threads, and edits
   await review.getByRole('textbox', { name: 'General comment' }).fill('General review summary.');
   const pending = review.getByRole('region', { name: 'Pending GitHub comments' });
   await expect(pending.getByRole('listitem')).toHaveCount(2);
+  const replyItem = pending.getByRole('listitem').filter({ hasText: 'Thanks for clarifying.' });
+  await replyItem.getByRole('button', { name: 'Edit pending comment' }).click();
+  const editor = page.getByRole('dialog', { name: 'Edit pending GitHub comment' });
+  const comment = editor.getByRole('textbox', { name: 'Comment' });
+  await expect(comment).toHaveValue('Thanks for clarifying.');
+  await comment.fill('Thanks for explaining the precision.');
+  await comment.press('Control+Enter');
+  await expect(pending.getByText('Thanks for explaining the precision.')).toBeVisible();
   await pending
     .getByRole('listitem')
     .filter({ hasText: 'Remove this draft.' })
@@ -99,11 +107,15 @@ test('replies, changes resolution from both panels, collapses threads, and edits
   const confirm = page.getByRole('alertdialog', { name: 'Delete pending GitHub comment' });
   await confirm.getByRole('button', { name: 'Delete comment' }).click();
   await expect(pending.getByRole('listitem')).toHaveCount(1);
-  await expect(pending.getByText('Thanks for clarifying.')).toBeVisible();
+  await expect(pending.getByText('Thanks for explaining the precision.')).toBeVisible();
   await expect(review.getByRole('textbox', { name: 'General comment' })).toHaveValue('General review summary.');
   await review.getByRole('button', { name: 'Submit review' }).click();
   await expect(review).toHaveCount(0);
-  expect(github.submitted).toEqual([{ summary: 'General review summary.', comments: ['Thanks for clarifying.'] }]);
+  expect(github.submitted).toEqual([
+    { summary: 'General review summary.', comments: ['Thanks for explaining the precision.'] },
+  ]);
+  await expect(code.getByText('Thanks for explaining the precision.')).toBeVisible();
+  await expect(code.getByRole('button', { name: 'Edit pending comment' })).toHaveCount(0);
 });
 
 test('restores open cards and clickable GitHub and local gutter markers after a server restart', async ({
@@ -219,6 +231,15 @@ test('remembers both comment destinations in the browser session', async ({ page
   await expect(
     page.getByRole('region', { name: 'GitHub comments' }).getByText('Draft added from the keyboard.'),
   ).toBeVisible();
+  const inline = page
+    .getByRole('article', { name: 'GitHub thread in code' })
+    .filter({ hasText: 'Draft added from the keyboard.' });
+  await clickCentred(inline.getByRole('button', { name: 'Edit pending comment' }));
+  const edit = page.getByRole('dialog', { name: 'Edit pending GitHub comment' });
+  await expect(edit.getByRole('textbox', { name: 'Comment' })).toHaveValue('Draft added from the keyboard.');
+  await edit.getByRole('textbox', { name: 'Comment' }).fill('Edited inline.');
+  await edit.getByRole('button', { name: 'Save comment' }).click();
+  await expect(page.getByRole('region', { name: 'GitHub comments' }).getByText('Edited inline.')).toBeVisible();
   await selectLines(page, path, 8, 8);
   await expect(destination).toHaveValue('github');
   await destination.selectOption('local');
