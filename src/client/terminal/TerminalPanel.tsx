@@ -1,8 +1,19 @@
-import { ChevronDown, Plus, Terminal, X } from 'lucide-react';
+import { ChevronDown, Columns2, Plus, Terminal, X } from 'lucide-react';
 import { useEffect, useState, type PointerEvent } from 'react';
-import { terminalAccess } from '@/client/api.js';
+import { api } from '@/client/api.js';
 import { Button } from '@/client/ui/Button.js';
-import { addTerminal, closeTerminal, toggleTerminal, useTerminalLayout } from './state.js';
+import {
+  addTerminal,
+  closeTerminal,
+  closeTerminalPane,
+  configureTerminals,
+  hasTerminalRoom,
+  selectTerminal,
+  selectTerminalPane,
+  splitTerminal,
+  toggleTerminal,
+  useTerminalLayout,
+} from './state.js';
 import { TerminalSurface } from './TerminalSurface.js';
 
 export function TerminalToggle() {
@@ -11,9 +22,9 @@ export function TerminalToggle() {
 
   useEffect(() => {
     const controller = new AbortController();
-    void terminalAccess(controller.signal).then(
-      (token) => {
-        if (!controller.signal.aborted) useTerminalLayout.setState({ token });
+    void api.terminalAccess(controller.signal).then(
+      (access) => {
+        if (!controller.signal.aborted) configureTerminals(access);
       },
       () => {},
     );
@@ -42,9 +53,11 @@ function clampHeight(height: number): number {
 }
 
 export function TerminalPanel() {
-  const { token, tabs, open, active } = useTerminalLayout();
+  const { token, tabs, open, active, focusRequest } = useTerminalLayout();
   const [height, setHeight] = useState(264);
   if (!token || (!open && !tabs.length)) return null;
+  const room = hasTerminalRoom(tabs);
+  const activeTab = tabs.find((tab) => tab.id === active);
 
   const startResize = (event: PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -71,17 +84,13 @@ export function TerminalPanel() {
       </div>
       <div className="flex shrink-0 items-center gap-1 border-b border-border bg-surface px-2 pb-1.5 text-xs">
         <div className="flex min-w-0 items-center gap-1 overflow-x-auto">
-          {tabs.map((id) => (
+          {tabs.map(({ id }) => (
             <div
               key={id}
               data-active={id === active}
               className="flex shrink-0 items-center rounded-md border border-transparent text-muted data-[active=true]:border-border data-[active=true]:bg-card data-[active=true]:text-foreground"
             >
-              <Button
-                variant="ghost"
-                aria-pressed={id === active}
-                onClick={() => useTerminalLayout.setState({ active: id })}
-              >
+              <Button variant="ghost" aria-pressed={id === active} onClick={() => selectTerminal(id)}>
                 <Terminal size="0.8125rem" />
                 Terminal {id}
               </Button>
@@ -91,17 +100,50 @@ export function TerminalPanel() {
             </div>
           ))}
         </div>
-        <Button variant="ghost" icon aria-label="New terminal" onClick={addTerminal}>
+        <Button variant="ghost" icon aria-label="New terminal" disabled={!room} onClick={addTerminal}>
           <Plus size="1rem" />
         </Button>
+        <Button
+          variant="ghost"
+          icon
+          aria-label="Split terminal right"
+          disabled={!activeTab || !room}
+          onClick={splitTerminal}
+        >
+          <Columns2 size="1rem" />
+        </Button>
+        {(activeTab?.panes.length ?? 0) > 1 && (
+          <Button variant="ghost" icon aria-label="Close active terminal pane" onClick={closeTerminalPane}>
+            <X size="0.8rem" />
+          </Button>
+        )}
         <span className="flex-1" />
         <Button variant="ghost" icon aria-label="Hide terminal panel" onClick={toggleTerminal}>
           <ChevronDown size="1rem" />
         </Button>
       </div>
-      {tabs.map((id) => (
-        <div key={id} className={id === active ? 'flex min-h-0 flex-1' : 'hidden'} inert={!open || id !== active}>
-          <TerminalSurface token={token} active={open && id === active} />
+      {tabs.map((tab) => (
+        <div
+          key={tab.id}
+          className={tab.id === active ? 'flex min-h-0 flex-1 divide-x divide-border' : 'hidden'}
+          inert={!open || tab.id !== active}
+        >
+          {tab.panes.map((pane) => {
+            const focused = open && tab.id === active && tab.activePane === pane.id;
+            return (
+              <div
+                key={pane.id}
+                className="relative flex min-w-0 flex-1 overflow-hidden"
+                onFocusCapture={() => selectTerminalPane(pane.id)}
+                data-terminal-pane={pane.id}
+              >
+                <TerminalSurface token={token} startup={pane.startup} active={focused} focusRequest={focusRequest} />
+                {tab.panes.length > 1 && focused && (
+                  <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-px bg-accent" />
+                )}
+              </div>
+            );
+          })}
         </div>
       ))}
     </section>

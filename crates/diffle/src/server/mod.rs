@@ -43,7 +43,10 @@ pub struct ServerOptions {
     pub endpoint: Endpoint,
     pub allowed_origin: Option<String>,
     pub launch_dir: Option<PathBuf>,
+    pub terminal_commands: Vec<String>,
 }
+
+pub use terminal::MAX_TERMINALS;
 
 pub enum Endpoint {
     /// A port on `host`; with `probe`, the first free one at or above `port` instead of failing.
@@ -96,7 +99,7 @@ impl Server {
                 let at = url(&host, addr);
                 let router = if opts.allowed_origin.is_none() && addr.ip().is_loopback() {
                     if let Some(dir) = opts.launch_dir {
-                        router.merge(terminal::router(dir, addr.port(), stopped.clone()))
+                        router.merge(terminal::router(dir, opts.terminal_commands, addr.port(), stopped.clone()))
                     } else {
                         router
                     }

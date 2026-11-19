@@ -9,7 +9,7 @@ import { activeView, panelOf, toggleView, useViews } from '@/client/views/state.
 import { copyCursorPermalink } from '@/client/review/permalink.js';
 import { useStore, type ReviewState } from '@/client/store.js';
 import { nextTheme } from '@/client/theme.js';
-import { toggleTerminal, useTerminalLayout } from '@/client/terminal/state.js';
+import { moveTerminalFocus, toggleTerminal, useTerminalLayout } from '@/client/terminal/state.js';
 import type { BlameMode } from '@/shared/protocol.js';
 
 const CHORD_MS = 800;
@@ -167,6 +167,22 @@ export function useKeymap(): void {
         return;
       const s = useStore.getState();
       const target = realTarget(e);
+      const inTerminal = target?.closest('[data-terminal-input]');
+      if (
+        e.altKey &&
+        e.shiftKey &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !target?.closest('[role="dialog"]') &&
+        (inTerminal || !isEditable(target)) &&
+        moveTerminalFocus(e.code)
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        clearPending();
+        count.current = '';
+        return;
+      }
       if (
         e.ctrlKey &&
         !e.metaKey &&
@@ -177,12 +193,13 @@ export function useKeymap(): void {
         !target?.closest('[role="dialog"]')
       ) {
         e.preventDefault();
+        e.stopPropagation();
         if (!e.repeat) toggleTerminal();
         clearPending();
         count.current = '';
         return;
       }
-      if (target?.closest('[data-terminal-input], [data-github-comments-resize]')) return;
+      if (inTerminal || target?.closest('[data-github-comments-resize]')) return;
       // The count belongs to this press: every path below either uses it or, by
       // leaving it taken, drops it as vim does on a key that takes no count.
       const typed = count.current;

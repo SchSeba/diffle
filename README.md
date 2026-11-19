@@ -253,9 +253,22 @@ uses.
 
 ## Terminal
 
-Click **Terminal** or press Ctrl+`to toggle the resizable bottom panel. Create independent shells
-with **+**. Each shell starts in the directory where you ran Diffle (or the directory passed to`-C`). Hiding the panel keeps the shells running. Closing the browser tab or Diffle ends them.
+Click **Terminal** or press Ctrl+Backtick to toggle the resizable bottom panel. Use **+** to open
+a new tab or **Split terminal right** to open a shell beside the active pane. Use Alt+Shift+G
+to open and focus the current terminal, Alt+Shift+J/K to move to the next/previous tab,
+and Alt+Shift+H/L to focus the pane to the left/right. Use Option in place of Alt on macOS.
+These bindings also appear in **Keyboard shortcuts**.
+
+Each shell starts in the directory where you ran Diffle or the directory passed to `-C`.
+Hiding the panel keeps the shells running. Closing the browser tab or Diffle ends them.
 The terminal is available on a direct localhost connection. Use `--no-terminal` to disable it.
+
+Repeat `--terminal` to open tabs in order when the review loads. For example, the first tab
+below runs Codex and the second opens an interactive shell. Quote commands that contain spaces.
+
+```sh
+diffle working --terminal=codex --terminal
+```
 
 ## Work with a coding agent
 

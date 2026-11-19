@@ -14,24 +14,27 @@ use axum::routing::{get, post};
 use serde::Deserialize;
 use tokio::sync::{Semaphore, watch};
 
-use crate::protocol::{TerminalResize, TerminalStatus};
+use crate::protocol::{TerminalAccess, TerminalResize, TerminalStatus};
 
 const FRAME_LIMIT: usize = 64 * 1024;
+pub const MAX_TERMINALS: usize = 12;
 
 struct Terminals {
     port: u16,
     dir: PathBuf,
+    commands: Vec<String>,
     token: String,
     slots: Arc<Semaphore>,
     shutdown: watch::Receiver<bool>,
 }
 
-pub(super) fn router(dir: PathBuf, port: u16, shutdown: watch::Receiver<bool>) -> Router {
+pub(super) fn router(dir: PathBuf, commands: Vec<String>, port: u16, shutdown: watch::Receiver<bool>) -> Router {
     let state = Arc::new(Terminals {
         port,
         dir,
+        commands,
         token: uuid::Uuid::new_v4().to_string(),
-        slots: Arc::new(Semaphore::new(12)),
+        slots: Arc::new(Semaphore::new(MAX_TERMINALS)),
         shutdown,
     });
     Router::new()
@@ -54,12 +57,14 @@ async fn access(State(state): State<Arc<Terminals>>, headers: HeaderMap) -> Resp
     if !same_origin(&headers, state.port) {
         return StatusCode::FORBIDDEN.into_response();
     }
-    ([(header::CACHE_CONTROL, "no-store")], state.token.clone()).into_response()
+    let access = TerminalAccess { token: state.token.clone(), startup_tabs: state.commands.len() as i64 };
+    ([(header::CACHE_CONTROL, "no-store")], axum::Json(access)).into_response()
 }
 
 #[derive(Deserialize)]
 struct Capability {
     token: String,
+    startup: Option<usize>,
 }
 
 async fn connect(
@@ -71,16 +76,24 @@ async fn connect(
     if !same_origin(&headers, state.port) || capability.token != state.token {
         return StatusCode::FORBIDDEN.into_response();
     }
+    let command = match capability.startup {
+        Some(index) => match state.commands.get(index) {
+            Some(command) if command.is_empty() => None,
+            Some(command) => Some(command.clone()),
+            None => return StatusCode::BAD_REQUEST.into_response(),
+        },
+        None => None,
+    };
     let Ok(slot) = state.slots.clone().try_acquire_owned() else {
         return StatusCode::TOO_MANY_REQUESTS.into_response();
     };
     upgrade.max_frame_size(FRAME_LIMIT).max_message_size(FRAME_LIMIT).on_upgrade(move |socket| async move {
         let _slot = slot;
-        serve(socket, state).await;
+        serve(socket, state, command).await;
     })
 }
 
-async fn serve(mut socket: WebSocket, state: Arc<Terminals>) {
+async fn serve(mut socket: WebSocket, state: Arc<Terminals>, command: Option<String>) {
     let mut shutdown = state.shutdown.clone();
     let first = tokio::select! {
         _ = async { let _ = shutdown.wait_for(|stopped| *stopped).await; } => return,
@@ -89,7 +102,7 @@ async fn serve(mut socket: WebSocket, state: Arc<Terminals>) {
     let Ok(Some(Ok(Message::Text(first)))) = first else { return };
     let Some(size) = resize(&first) else { return };
     let dir = state.dir.clone();
-    let opened = tokio::task::spawn_blocking(move || pty::Terminal::open(&dir, size)).await;
+    let opened = tokio::task::spawn_blocking(move || pty::Terminal::open(&dir, size, command.as_deref())).await;
     let mut terminal = match opened {
         Ok(Ok(terminal)) => terminal,
         Ok(Err(error)) => {

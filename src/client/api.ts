@@ -7,12 +7,8 @@ function githubCommentsChanged<T>(value: T): T {
   return value;
 }
 
-export function terminalAccess(signal: AbortSignal): Promise<string> {
-  return text('api/terminal/access', { method: 'POST', signal });
-}
-
-export function connectTerminal(token: string): WebSocket {
-  const url = new URL(`api/terminal/socket?${q({ token })}`, location.href);
+export function connectTerminal(token: string, startup?: number): WebSocket {
+  const url = new URL(`api/terminal/socket?${q({ token, startup: startup?.toString() })}`, location.href);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   const socket = new WebSocket(url);
   socket.binaryType = 'arraybuffer';
@@ -20,6 +16,7 @@ export function connectTerminal(token: string): WebSocket {
 }
 import { encode, json, q, text } from './http.js';
 import {
+  TerminalAccessSchema,
   BlameRequestSchema,
   BlameResponseSchema,
   ConfigUpdateSchema,
@@ -265,6 +262,8 @@ export const api = {
   /** Document symbols for a path, or workspace symbols matching a query. */
   lspSymbols: (query: SymbolsQuery) => json(LspSymbolsResponseSchema, `api/lsp/symbols?${q(query)}`),
   config: () => json(UserConfigSchema, 'api/config'),
+  terminalAccess: (signal: AbortSignal) =>
+    json(TerminalAccessSchema, 'api/terminal/access', { method: 'POST', signal }),
   /** lspCommands and githubHosts are CLI-only; the server ignores them. */
   saveConfig: (config: ConfigUpdate) =>
     json(UserConfigSchema, 'api/config', { method: 'PUT', body: encode(ConfigUpdateSchema, config) }),

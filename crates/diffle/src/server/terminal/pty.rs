@@ -15,11 +15,18 @@ pub(super) struct Terminal {
 }
 
 impl Terminal {
-    pub fn open(dir: &Path, size: PtySize) -> anyhow::Result<Self> {
+    pub fn open(dir: &Path, size: PtySize, startup: Option<&str>) -> anyhow::Result<Self> {
         let pair = native_pty_system().openpty(size).context("cannot open a terminal")?;
         let mut reader = pair.master.try_clone_reader()?;
         let mut writer = pair.master.take_writer()?;
         let mut cmd = CommandBuilder::new_default_prog();
+        if let Some(startup) = startup {
+            cmd = CommandBuilder::new(cmd.get_shell());
+            #[cfg(unix)]
+            cmd.args(["-i", "-c", startup]);
+            #[cfg(windows)]
+            cmd.args(["/C", startup]);
+        }
         cmd.cwd(dir);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");

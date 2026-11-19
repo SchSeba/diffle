@@ -1293,6 +1293,13 @@ export type Activity = z.infer<typeof ActivitySchema>;
 
 export const ApiErrorSchema = z.object({ error: z.string() });
 
+export const MAX_TERMINALS = 12;
+export const TerminalAccessSchema = z.object({
+  token: z.string(),
+  startupTabs: z.number().int(),
+});
+export type TerminalAccess = z.infer<typeof TerminalAccessSchema>;
+
 export const TerminalResizeSchema = z.object({
   cols: z.number().int().min(1).max(500),
   rows: z.number().int().min(1).max(300),

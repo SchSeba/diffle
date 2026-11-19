@@ -16,13 +16,24 @@ const loadGhostty = async () => {
 };
 let loading: ReturnType<typeof loadGhostty> | undefined;
 
-export function TerminalSurface({ token, active }: { token: string; active: boolean }) {
+export function TerminalSurface({
+  token,
+  startup,
+  active,
+  focusRequest,
+}: {
+  token: string;
+  startup?: number;
+  active: boolean;
+  focusRequest: number;
+}) {
   const container = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal>(null);
   const resizeTerminal = useRef<() => void>(null);
   const fontSize = useStore((s) => s.config.terminalFontSize);
   const rem = useRemPx();
   const savedSize = useRef(fontSize);
+  const focused = useRef(active);
   const [status, setStatus] = useState('Starting shell…');
 
   useEffect(() => {
@@ -57,7 +68,7 @@ export function TerminalSurface({ token, active }: { token: string; active: bool
       term.loadAddon(fit);
       term.open(host);
       terminal.current = term;
-      const ws = connectTerminal(token);
+      const ws = connectTerminal(token, startup);
       cleanup = () => {
         ws.close();
         terminal.current = null;
@@ -96,7 +107,7 @@ export function TerminalSurface({ token, active }: { token: string; active: bool
       });
       ws.onopen = () => {
         sendSize();
-        if (host.offsetParent !== null && !host.closest('[inert]')) term.focus();
+        if (focused.current && host.offsetParent !== null && !host.closest('[inert]')) term.focus();
         setStatus('');
       };
       ws.onmessage = ({ data }: MessageEvent<unknown>) => {
@@ -119,11 +130,12 @@ export function TerminalSurface({ token, active }: { token: string; active: bool
       cancelled = true;
       cleanup?.();
     };
-  }, [token]);
+  }, [token, startup]);
 
   useEffect(() => {
+    focused.current = active;
     if (active) terminal.current?.focus();
-  }, [active]);
+  }, [active, focusRequest]);
 
   return (
     <div className="relative min-h-0 flex-1" data-terminal-input>

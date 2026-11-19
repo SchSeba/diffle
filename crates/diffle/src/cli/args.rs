@@ -101,6 +101,9 @@ pub struct GlobalOpts {
     /// disable integrated browser shells
     #[arg(long)]
     pub no_terminal: bool,
+    /// Open a terminal on load. Repeat for multiple tabs; pass a command with --terminal=<command>.
+    #[arg(long = "terminal", value_name = "command", num_args = 0..=1, require_equals = true, default_missing_value = "", conflicts_with = "no_terminal")]
+    pub terminal_commands: Vec<String>,
     /// keep the server running after all browser tabs close
     #[arg(long)]
     pub keep_alive: bool,
@@ -287,6 +290,7 @@ impl GlobalOpts {
             socket: later.socket.or(self.socket),
             no_open: self.no_open || later.no_open,
             no_terminal: self.no_terminal || later.no_terminal,
+            terminal_commands: [self.terminal_commands, later.terminal_commands].concat(),
             keep_alive: self.keep_alive || later.keep_alive,
             no_watch: self.no_watch || later.no_watch,
             auto_viewed: [self.auto_viewed, later.auto_viewed].concat(),
