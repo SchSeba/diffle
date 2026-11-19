@@ -1,4 +1,6 @@
 import { expect, test } from './fixtures.js';
+import { readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { clickLine, gotoFile, selectLines, settle } from './browser.js';
 import { readPrompt, readThreads, seedReply, seedThreads } from './server.js';
 
@@ -98,6 +100,32 @@ test('resolves and reopens a thread from the comments panel', async ({ page, dif
   await expect(sidebar.getByText('Keep the review history.')).toBeVisible();
   await sidebar.getByRole('button', { name: 'Reopen thread', exact: true }).click();
   await expect.poll(async () => (await readThreads(diffle.url))[0]?.resolved).toBe(false);
+});
+
+test.describe('a stale local thread', () => {
+  test.use({ revs: ['working'] });
+
+  test('opens from a marker at its last known line', async ({ page, diffle, repo }) => {
+    const path = 'tally/refunds.py';
+    const file = join(repo, path);
+    await seedThreads(diffle.url, [{ path, startLine: 18, body: 'Discuss the original refund logic.' }]);
+    await gotoFile(page, path);
+    const code = page.locator('.codeview');
+    const body = code.getByText('Discuss the original refund logic.');
+    await expect(body).toBeVisible();
+
+    const lines = (await readFile(file, 'utf8')).split('\n');
+    lines[17] = '    # The original refund logic has moved.';
+    await writeFile(file, lines.join('\n'));
+    const reloaded = await page.request.post(new URL('api/reload', diffle.url).href);
+    expect(reloaded.ok()).toBe(true);
+    await expect.poll(async () => (await readThreads(diffle.url))[0]?.stale).toBe(true);
+    await expect(body).toHaveCount(0);
+    const marker = code.locator('[data-column-number="18"]').getByRole('button', { name: 'Open stale local thread' });
+    await marker.click();
+    await expect(body).toBeVisible();
+    await expect(page.getByPlaceholder('Leave a comment…')).toHaveCount(0);
+  });
 });
 
 test('regression: closing a composer keeps its text until the comment is posted', async ({ page, diffle }) => {

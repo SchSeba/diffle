@@ -1,5 +1,10 @@
 import type { CodeViewLineSelection, FileContents, FileDiffMetadata } from '@pierre/diffs';
-import { githubDraftId, type CommentDestination } from './comments/destination.js';
+import {
+  githubDraftId,
+  readCommentDestination,
+  rememberCommentDestination,
+  type CommentDestination,
+} from './comments/destination.js';
 import { hydratePartialDiff, parsePatchFiles } from '@pierre/diffs';
 import type { FileTree } from '@pierre/trees';
 import { create } from 'zustand';
@@ -320,6 +325,8 @@ export interface ReviewState {
   /** Anchor row while in visual (block) mode. */
   visualAnchor: Cursor | null;
   /** Text typed into comment editors but not yet saved, by `composerKey`; closing an editor keeps it. */
+  commentDestination: CommentDestination;
+  setCommentDestination(destination: CommentDestination): void;
   unsent: Record<string, string>;
   /** Empty text forgets the entry. */
   setUnsent(key: string, text: string): void;
@@ -1618,6 +1625,11 @@ export const useStore = create<ReviewState>((set, get) => {
       set({ theme });
     },
     visualAnchor: null,
+    commentDestination: readCommentDestination(),
+    setCommentDestination(commentDestination) {
+      rememberCommentDestination(commentDestination);
+      set({ commentDestination });
+    },
     unsent: readUnsent(),
     setUnsent(key, text) {
       const { [key]: _, ...rest } = get().unsent;

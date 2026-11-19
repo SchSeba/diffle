@@ -1001,6 +1001,8 @@ async fn reads_resolved_and_outdated_threads_all_replies_and_general_discussion(
                         json!([{
                             "id":"thread", "path":"a.txt", "line":null, "startLine":null, "originalLine":7,
                             "originalStartLine":6, "diffSide":"LEFT", "isResolved":true, "isOutdated":true,
+                            "pullRequest":{"headRefOid":"pr-head"}, "viewerCanReply":true,
+                            "viewerCanResolve":false, "viewerCanUnresolve":true,
                             "replies":page(json!([msg("first", author)]), Some("more-replies"))
                         }]),
                         Some("more-threads"),
@@ -1018,6 +1020,8 @@ async fn reads_resolved_and_outdated_threads_all_replies_and_general_discussion(
     let comments = read(&github, &pr).await.unwrap();
     let thread = &comments.threads[0];
     assert!(thread.is_resolved && thread.is_outdated);
+    assert!(thread.viewer_can_reply && !thread.viewer_can_resolve && thread.viewer_can_unresolve);
+    assert_eq!(thread.pull_request.head_ref_oid, "pr-head");
     assert_eq!(thread.original_line, Some(7));
     assert_eq!(thread.comments.iter().map(|comment| comment.id.as_str()).collect::<Vec<_>>(), ["first", "reply-2"]);
     assert_eq!(thread.comments[1].author, "Deleted user");

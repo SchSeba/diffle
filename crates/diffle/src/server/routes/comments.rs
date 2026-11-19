@@ -40,6 +40,8 @@ pub fn routes() -> Router<Arc<ApiDeps>> {
         .route("/api/github/export", post(github_export))
         .route("/api/github/comment", post(github_comment))
         .route("/api/github/comments", get(github_comments).delete(delete_github_comment))
+        .route("/api/github/thread/reply", post(github_thread_reply))
+        .route("/api/github/thread/resolved", put(github_thread_resolved))
         .route("/api/github/review", post(github_review))
         .route("/api/viewed", get(viewed).put(set_viewed))
         .route("/api/viewed/bulk", put(set_viewed_bulk))
@@ -245,6 +247,16 @@ async fn delete_github_comment(State(d): State<Arc<ApiDeps>>, raw: Bytes) -> Api
 
 async fn github_comments(State(d): State<Arc<ApiDeps>>) -> ApiResult {
     Ok(Json(d.session.github_comments().await?).into_response())
+}
+
+async fn github_thread_reply(State(d): State<Arc<ApiDeps>>, raw: Bytes) -> ApiResult {
+    d.session.reply_github_thread(body(&raw)?).await?;
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+async fn github_thread_resolved(State(d): State<Arc<ApiDeps>>, raw: Bytes) -> ApiResult {
+    d.session.resolve_github_thread(body(&raw)?).await?;
+    Ok(StatusCode::NO_CONTENT.into_response())
 }
 
 async fn github_comment(State(d): State<Arc<ApiDeps>>, raw: Bytes) -> ApiResult {

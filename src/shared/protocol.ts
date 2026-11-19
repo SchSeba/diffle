@@ -1390,6 +1390,7 @@ export const GithubCommentMessageSchema = z.object({
   url: z.string().url(),
   state: z.string().optional(),
   canDelete: z.boolean().optional(),
+  isOwnPending: z.boolean(),
 });
 
 export const GithubPendingCommentDeleteSchema = z.object({
@@ -1398,8 +1399,20 @@ export const GithubPendingCommentDeleteSchema = z.object({
 });
 export type GithubPendingCommentDelete = z.infer<typeof GithubPendingCommentDeleteSchema>;
 
+export const GithubThreadReplySchema = GithubPendingCommentDeleteSchema.extend({
+  body: z.string().trim().min(1),
+});
+export type GithubThreadReply = z.infer<typeof GithubThreadReplySchema>;
+
+export const GithubThreadResolutionSchema = GithubPendingCommentDeleteSchema.extend({
+  resolved: z.boolean(),
+});
+export type GithubThreadResolution = z.infer<typeof GithubThreadResolutionSchema>;
+
 export const GithubCommentThreadSchema = z.object({
   id: z.string(),
+  /** The PR head that GitHub's current line numbers refer to. */
+  pullRequest: z.object({ headRefOid: z.string() }),
   path: z.string(),
   line: z.number().int().nullable(),
   startLine: z.number().int().nullable(),
@@ -1408,6 +1421,9 @@ export const GithubCommentThreadSchema = z.object({
   diffSide: z.enum(['LEFT', 'RIGHT']),
   isResolved: z.boolean(),
   isOutdated: z.boolean(),
+  viewerCanReply: z.boolean(),
+  viewerCanResolve: z.boolean(),
+  viewerCanUnresolve: z.boolean(),
   comments: GithubCommentMessageSchema.array().default([]),
 });
 

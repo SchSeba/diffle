@@ -34,17 +34,15 @@ struct Author {
 
 impl From<Message> for GithubCommentMessage {
     fn from(value: Message) -> Self {
+        let is_own_pending = value.state.as_deref() == Some("PENDING") && value.viewer_did_author == Some(true);
         Self {
             id: value.id,
             author: value.author.map_or_else(|| "Deleted user".into(), |a| a.login),
             body: value.body,
             created_at: value.created_at,
             url: value.url,
-            can_delete: Some(
-                value.state.as_deref() == Some("PENDING")
-                    && value.viewer_did_author == Some(true)
-                    && value.viewer_can_delete == Some(true),
-            ),
+            can_delete: Some(is_own_pending && value.viewer_can_delete == Some(true)),
+            is_own_pending,
             state: value.state,
         }
     }
@@ -87,7 +85,7 @@ impl Pull<'_> {
 
     async fn threads(&self) -> Result<Vec<GithubCommentThread>, GithubError> {
         let fields = format!(
-            "id path line startLine originalLine originalStartLine diffSide isResolved isOutdated replies:comments(first:20){{nodes{{{MESSAGE} {PERMISSIONS}}} {PAGE}}}"
+            "id path line startLine originalLine originalStartLine diffSide isResolved isOutdated viewerCanReply viewerCanResolve viewerCanUnresolve pullRequest{{headRefOid}} replies:comments(first:20){{nodes{{{MESSAGE} {PERMISSIONS}}} {PAGE}}}"
         );
         let threads = self.collect::<Thread>("reviewThreads", &fields).await?;
         let reply_query = format!(
@@ -174,4 +172,58 @@ pub async fn pending_comment_id(client: &dyn GithubClient, pr_url: &str, id: &st
         return Err(GithubError::conflict("You can only delete your own pending comments on this pull request"));
     }
     comment["databaseId"].as_u64().ok_or_else(|| unreadable("GitHub did not return the comment's REST identifier"))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadTarget {
+    pub pull_request: ThreadPull,
+    pub is_resolved: bool,
+    pub viewer_can_reply: bool,
+    pub viewer_can_resolve: bool,
+    pub viewer_can_unresolve: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadPull {
+    pub url: String,
+    pub head_ref_oid: String,
+}
+
+pub async fn thread_target(client: &dyn GithubClient, pr_url: &str, id: &str) -> Result<ThreadTarget, GithubError> {
+    let query = "query($id:ID!){node(id:$id){... on PullRequestReviewThread{isResolved viewerCanReply viewerCanResolve viewerCanUnresolve pullRequest{url headRefOid}}}}";
+    let mut data = client.graphql(query, json!({ "id": id }), TIMEOUT).await?;
+    let target: ThreadTarget = serde_json::from_value(data["node"].take())
+        .map_err(|error| unreadable(format!("Cannot read GitHub thread: {error}")))?;
+    if target.pull_request.url != pr_url {
+        return Err(GithubError::conflict("This thread is not on the active pull request"));
+    }
+    Ok(target)
+}
+
+pub async fn reply(client: &dyn GithubClient, id: &str, review_id: &str, body: &str) -> Result<(), GithubError> {
+    let mutation = "mutation($input:AddPullRequestReviewThreadReplyInput!){addPullRequestReviewThreadReply(input:$input){comment{id}}}";
+    let vars = json!({
+        "input": { "pullRequestReviewThreadId": id, "pullRequestReviewId": review_id, "body": body }
+    });
+    let data = client.graphql(mutation, vars, TIMEOUT).await?;
+    if data.pointer("/addPullRequestReviewThreadReply/comment/id").and_then(Value::as_str).is_none() {
+        return Err(unreadable("GitHub did not return the added reply"));
+    }
+    Ok(())
+}
+
+pub async fn set_resolved(client: &dyn GithubClient, id: &str, resolved: bool) -> Result<(), GithubError> {
+    let (field, input) = if resolved {
+        ("resolveReviewThread", "ResolveReviewThreadInput")
+    } else {
+        ("unresolveReviewThread", "UnresolveReviewThreadInput")
+    };
+    let mutation = format!("mutation($input:{input}!){{{field}(input:$input){{thread{{isResolved}}}}}}");
+    let data = client.graphql(&mutation, json!({ "input": { "threadId": id } }), TIMEOUT).await?;
+    if data[field]["thread"]["isResolved"].as_bool() != Some(resolved) {
+        return Err(unreadable("GitHub did not confirm the thread's resolution"));
+    }
+    Ok(())
 }

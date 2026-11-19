@@ -12,6 +12,7 @@ import { Markdown } from '@/client/Markdown.js';
 import { ButtonLabel } from '@/client/ui/ButtonLabel.js';
 import { useConfirm } from '@/client/useConfirm.js';
 import { useStore } from '@/client/store.js';
+import { localThreadKey, localThreadStatus, setInlineExpanded } from './inlineExpansion.js';
 
 /**
  * One thread. Memoized on the thread object and the store's stable actions, so
@@ -37,6 +38,7 @@ export const ThreadRow = memo(function ThreadRow({
   const open = () => {
     // A file thread's card sits above the file's first line, where opening the file lands.
     if (t.anchor.kind === 'tour') return openTourThread(t.id);
+    if (localThreadStatus(t)) setInlineExpanded(localThreadKey(t.id), true);
     if (t.anchor.kind === 'line') void openFile(t.anchor.path, t.anchor.endLine, t.anchor.side);
     else void openFile(t.anchor.path);
     // From the tour's panel too, a thread on code opens in the diff.

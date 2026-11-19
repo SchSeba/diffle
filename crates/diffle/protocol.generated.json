@@ -804,6 +804,9 @@
         },
         "canDelete": {
           "type": "boolean"
+        },
+        "isOwnPending": {
+          "type": "boolean"
         }
       },
       "required": [
@@ -811,7 +814,8 @@
         "author",
         "body",
         "createdAt",
-        "url"
+        "url",
+        "isOwnPending"
       ]
     },
     "GithubCommentRequest": {
@@ -861,6 +865,18 @@
       "properties": {
         "id": {
           "type": "string"
+        },
+        "pullRequest": {
+          "type": "object",
+          "properties": {
+            "headRefOid": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "headRefOid"
+          ],
+          "description": "The PR head that GitHub's current line numbers refer to."
         },
         "path": {
           "type": "string"
@@ -926,6 +942,15 @@
         "isOutdated": {
           "type": "boolean"
         },
+        "viewerCanReply": {
+          "type": "boolean"
+        },
+        "viewerCanResolve": {
+          "type": "boolean"
+        },
+        "viewerCanUnresolve": {
+          "type": "boolean"
+        },
         "comments": {
           "default": [],
           "type": "array",
@@ -936,6 +961,7 @@
       },
       "required": [
         "id",
+        "pullRequest",
         "path",
         "line",
         "startLine",
@@ -943,7 +969,10 @@
         "originalStartLine",
         "diffSide",
         "isResolved",
-        "isOutdated"
+        "isOutdated",
+        "viewerCanReply",
+        "viewerCanResolve",
+        "viewerCanUnresolve"
       ]
     },
     "GithubExportRequest": {
@@ -1144,6 +1173,47 @@
         "version",
         "decision",
         "summary"
+      ]
+    },
+    "GithubThreadReply": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "prUrl": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id",
+        "prUrl",
+        "body"
+      ]
+    },
+    "GithubThreadResolution": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "prUrl": {
+          "type": "string"
+        },
+        "resolved": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "prUrl",
+        "resolved"
       ]
     },
     "GraphEdge": {
