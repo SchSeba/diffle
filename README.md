@@ -136,14 +136,8 @@ diff.
   <img alt="A tour in diffle: a diagram and a walk stepped with l, a symbol's references, a comment on the tour's words, a trace and tabs, then a checklist ticked and answered" src=".github/assets/videos/tour-light.gif">
 </picture>
 
-Install the skill once, and your agent knows how to write a tour:
-
-```bash
-mkdir -p ~/.claude/skills/diffle
-diffle skill > ~/.claude/skills/diffle/SKILL.md
-```
-
-Then ask it for one. diffle opens the tour as soon as it's pushed, and `T` toggles it:
+[Install the Diffle skill](#install-the-diffle-skill) and ask your agent to write a tour.
+diffle opens the tour as soon as it's pushed, and `T` toggles it:
 
 - `n` / `p`: next or previous section
 - `l` / `h`: step through the walk, trace, or diagram in view
@@ -303,9 +297,36 @@ in its checkout, or for each commit when HEAD is detached.
 
 See [Take a tour of the change](#take-a-tour-of-the-change) for what a tour shows.
 
-`diffle skill` prints all of this for the agent, the tour's elements included, as a skill to
-install as is: save it as `SKILL.md` in a `diffle` folder among your agent's skills, such as
-`~/.claude/skills/diffle/`. `--no-frontmatter` leaves out its name and description.
+### Install the Diffle skill
+
+`diffle skill` generates a skill for handling pending comments and writing tours. Install
+Diffle and make sure `diffle` is on your agent's `PATH`. Run the install commands as the
+user who runs the agent on the workspace host. Repeat them after upgrading Diffle to
+refresh the skill.
+
+#### Codex
+
+```bash
+mkdir -p ~/.agents/skills/diffle
+diffle skill > ~/.agents/skills/diffle/SKILL.md
+```
+
+Open Codex in the worktree you're reviewing and submit `$diffle Handle the pending review
+comments.` or `$diffle Write a tour of this change.` You can also select `diffle` from
+`/skills`. If the skill doesn't appear, reopen the session. For the CLI, use `codex resume`
+to keep the same conversation. See the [Codex skills guide](https://developers.openai.com/codex/skills).
+
+#### Claude Code
+
+```bash
+mkdir -p ~/.claude/skills/diffle
+diffle skill > ~/.claude/skills/diffle/SKILL.md
+```
+
+Open Claude Code in the worktree you're reviewing and submit `/diffle Handle the pending
+review comments.` or `/diffle Write a tour of this change.` The skill also appears in the
+`/` menu. If it doesn't appear, reopen Claude Code from the worktree with `claude --resume`
+to keep the same conversation. See the [Claude Code skills guide](https://code.claude.com/docs/en/skills).
 
 ## Open from lazygit
 
