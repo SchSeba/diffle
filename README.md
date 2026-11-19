@@ -243,15 +243,19 @@ uses.
 A coding agent in the same repository talks to the diffle running there:
 
 ```bash
-diffle comments list            # the threads you are shown, as JSON
-diffle comments reply <id> -    # answer a thread in Markdown; - reads stdin
+diffle comments pending            # unanswered reviewer feedback and reply targets
+diffle comments context <target>   # locate a comment before making a change
+diffle comments reply <target> -   # post one verified summary; - reads stdin
+diffle comments list               # inspect threads, including resolved ones
 diffle tour push tour.html      # show a guided tour of the change; stdin without a file
 diffle tour clear               # remove it
 diffle tour export tour.html    # save it as one HTML file that opens offline; - for stdout
 ```
 
-Ask your agent to look at your comments: it reads the threads, makes the changes, and replies in
-each one. The replies show up in your open review, marked as the agent's.
+Ask your agent to handle the pending Diffle comments. It refreshes the context before each fix
+and posts one reply per verified change. Replies appear in the same threads. Use the checkmark to
+resolve a thread and **Show resolved** to see or reopen it. Working comments persist for each branch
+in its checkout, or for each commit when HEAD is detached.
 
 See [Take a tour of the change](#take-a-tour-of-the-change) for what a tour shows.
 
