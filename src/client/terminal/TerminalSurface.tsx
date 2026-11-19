@@ -68,7 +68,14 @@ export function TerminalSurface({
       });
       const fit = new lib.FitAddon();
       term.loadAddon(fit);
-      term.open(host);
+      // Ghostty queues focus on open. Let the socket handler focus the active pane.
+      const focus = term.focus;
+      term.focus = () => {};
+      try {
+        term.open(host);
+      } finally {
+        term.focus = focus;
+      }
       terminal.current = term;
       let ws: WebSocket | undefined;
       let reconnect: ReturnType<typeof setTimeout> | undefined;

@@ -273,11 +273,13 @@ Closing a terminal pane ends its shell. Use `--keep-alive` to keep Diffle runnin
 last browser tab closes.
 The terminal is available on a direct localhost connection. Use `--no-terminal` to disable it.
 
-Repeat `--terminal` to open tabs in order when the review loads. For example, the first tab
-below runs Codex and the second opens an interactive shell. Quote commands that contain spaces.
+Repeat `--terminal` to open tabs in order when the review loads. Separate commands with commas
+to open panes left to right in the same tab. An empty entry opens a shell. Quote commands with
+spaces and escape literal commas as `\,` inside the quoted value.
 
 ```sh
-diffle working --keep-alive --terminal=codex --terminal
+diffle working --keep-alive --terminal=codex --terminal  # two tabs
+diffle working --keep-alive --terminal="codex,"          # one tab with two panes
 ```
 
 ## Work with a coding agent

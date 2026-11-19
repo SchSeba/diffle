@@ -38,14 +38,22 @@ struct Workspace {
     running: HashMap<i64, Arc<Pane>>,
 }
 
-pub(super) fn router(dir: PathBuf, commands: Vec<String>, port: u16, shutdown: watch::Receiver<bool>) -> Router {
-    let tabs: Vec<_> =
-        (1..=commands.len() as i64).map(|id| TerminalTab { id, panes: vec![id], active_pane: id }).collect();
+pub(super) fn router(dir: PathBuf, startup: Vec<Vec<String>>, port: u16, shutdown: watch::Receiver<bool>) -> Router {
+    let mut commands = Vec::new();
+    let tabs: Vec<_> = startup
+        .into_iter()
+        .map(|tab| {
+            let id = commands.len() as i64 + 1;
+            commands.extend(tab);
+            let panes = (id..=commands.len() as i64).collect();
+            TerminalTab { id, panes, active_pane: id }
+        })
+        .collect();
     let layout = TerminalLayout {
         updated_at: 0,
         active: tabs.first().map(|tab| tab.id),
         open: !tabs.is_empty(),
-        next: tabs.len() as i64 + 1,
+        next: commands.len() as i64 + 1,
         tabs,
     };
     let state = Arc::new(Terminals {
@@ -178,7 +186,8 @@ async fn serve(mut socket: WebSocket, state: Arc<Terminals>, id: i64) {
                 .running
                 .entry(id)
                 .or_insert_with(|| {
-                    let command = state.commands.get(id as usize - 1).filter(|command| !command.is_empty()).cloned();
+                    let command =
+                        state.commands.get(id as usize - 1).filter(|command| !command.trim().is_empty()).cloned();
                     Pane::start(state.dir.clone(), size, command, state.shutdown.clone())
                 })
                 .clone();

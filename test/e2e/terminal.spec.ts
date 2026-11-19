@@ -64,6 +64,30 @@ test('retains independent shells while the bottom panel is hidden', async ({ pag
   await expect(panel.getByRole('button', { name: 'Terminal 2', exact: true })).toHaveCount(0);
 });
 
+test.describe('startup split panes', () => {
+  test.use({ args: ["--terminal=printf '<startup>%s</startup>\\n' 'codex\\,ready'; exec /bin/sh,"] });
+
+  test('runs a startup command and a plain shell side by side in one tab', async ({ page }) => {
+    const output = capture(page);
+    await page.reload();
+    const panel = page.getByRole('region', { name: 'Terminal panel' });
+    const left = panel.locator('[data-terminal-pane="1"]');
+    const right = panel.locator('[data-terminal-pane="2"]');
+    await expect(panel.getByRole('button', { name: /^Terminal \d+$/ })).toHaveCount(1);
+    await expect(left.locator(':focus')).toHaveCount(1);
+    await expect(right.locator('canvas')).toBeVisible();
+    expect((await right.boundingBox())!.x).toBeGreaterThan((await left.boundingBox())!.x);
+    await expect.poll(() => output.get('1')).toContain('<startup>codex,ready</startup>');
+
+    await page.keyboard.press('Alt+Shift+L');
+    await expect(right.locator(':focus')).toHaveCount(1);
+    await page.keyboard.type('printf "<shell>%s</shell>\\n" shell-ready');
+    await page.keyboard.press('Enter');
+    await expect.poll(() => output.get('2')).toContain('<shell>shell-ready</shell>');
+    expect(output.get('2')).not.toContain('<startup>');
+  });
+});
+
 test.describe('startup terminals and splits', () => {
   test.use({
     args: ["--terminal=printf '<startup>%s</startup>\\n' codex; exec /bin/sh", '--terminal', '--keep-alive'],
