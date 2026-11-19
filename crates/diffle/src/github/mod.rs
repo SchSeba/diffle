@@ -6,3 +6,4 @@ pub mod pending_review;
 pub mod permalink;
 pub mod pulls;
 pub mod review;
+pub(crate) mod submit_review;

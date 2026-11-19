@@ -499,6 +499,13 @@ export const ThreadCreateSchema = z
   });
 export type ThreadCreate = z.infer<typeof ThreadCreateSchema>;
 
+export const GithubCommentRequestSchema = z.object({
+  version: z.number().int(),
+  id: z.string(),
+  comment: ThreadCreateSchema,
+});
+export type GithubCommentRequest = z.infer<typeof GithubCommentRequestSchema>;
+
 export const ReplyCreateSchema = z.object({
   body: z.string().refine((body) => body.trim().length > 0, 'body required'),
   /** Absent: the reviewer replies. */
@@ -515,8 +522,18 @@ export const GithubExportRequestSchema = z.object({
 });
 export type GithubExportRequest = z.infer<typeof GithubExportRequestSchema>;
 
+export const GithubReviewDecisionSchema = z.enum(['comment', 'approve', 'request-changes']);
+export type GithubReviewDecision = z.infer<typeof GithubReviewDecisionSchema>;
+
+export const GithubReviewSubmitSchema = z.object({
+  version: z.number().int(),
+  decision: GithubReviewDecisionSchema,
+  summary: z.string(),
+});
+export type GithubReviewSubmit = z.infer<typeof GithubReviewSubmitSchema>;
+
 export const GithubExportResponseSchema = z.object({
-  /** The pull request whose pending review the comments joined; the human submits the review there. */
+  /** The pull request whose pending review the comments joined; which can be submitted from Diffle or GitHub. */
   url: z.string(),
   /** Review comments added to the pending review. */
   posted: z.number().int(),

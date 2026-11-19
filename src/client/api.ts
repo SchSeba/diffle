@@ -5,6 +5,10 @@ import {
   BlameResponseSchema,
   ConfigUpdateSchema,
   GithubExportRequestSchema,
+  GithubCommentRequestSchema,
+  GithubReviewSubmitSchema,
+  type GithubReviewSubmit,
+  type GithubCommentRequest,
   LspHoverRequestSchema,
   LspPositionSchema,
   MessagePatchSchema,
@@ -138,6 +142,16 @@ export const api = {
     json(GithubExportResponseSchema, 'api/github/export', {
       method: 'POST',
       body: encode(GithubExportRequestSchema, req),
+    }),
+  submitGithubReview: (req: GithubReviewSubmit) =>
+    json(z.undefined(), 'api/github/review', {
+      method: 'POST',
+      body: encode(GithubReviewSubmitSchema, req),
+    }),
+  addGithubComment: (req: GithubCommentRequest) =>
+    json(GithubExportResponseSchema, 'api/github/comment', {
+      method: 'POST',
+      body: encode(GithubCommentRequestSchema, req),
     }),
   addThread: (t: ThreadCreate) =>
     json(CommentThreadSchema.array(), 'api/threads', { method: 'POST', body: encode(ThreadCreateSchema, t) }),

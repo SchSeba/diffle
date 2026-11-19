@@ -751,6 +751,27 @@
       ],
       "description": "How a review between refs reacts when one of them moves. `on`: recompute at once, as a worktree\nreview follows edits. `off`: announce the move and wait for Reload. `auto`: wait for Reload when an\nendpoint names a branch, whose pushes and rebases should not swap the review out under the\nreviewer; recompute at once otherwise (a detached HEAD, a tag, an expression)."
     },
+    "GithubCommentRequest": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "id": {
+          "type": "string"
+        },
+        "comment": {
+          "$ref": "#/$defs/ThreadCreate"
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "comment"
+      ]
+    },
     "GithubExportRequest": {
       "type": "object",
       "properties": {
@@ -768,7 +789,7 @@
       "properties": {
         "url": {
           "type": "string",
-          "description": "The pull request whose pending review the comments joined; the human submits the review there."
+          "description": "The pull request whose pending review the comments joined; which can be submitted from Diffle or GitHub."
         },
         "posted": {
           "type": "integer",
@@ -904,6 +925,35 @@
         "title",
         "state",
         "isDraft"
+      ]
+    },
+    "GithubReviewDecision": {
+      "type": "string",
+      "enum": [
+        "comment",
+        "approve",
+        "request-changes"
+      ]
+    },
+    "GithubReviewSubmit": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "decision": {
+          "$ref": "#/$defs/GithubReviewDecision"
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "decision",
+        "summary"
       ]
     },
     "GraphEdge": {

@@ -751,3 +751,123 @@ async fn answers_400_when_every_thread_is_skipped() {
     assert_eq!(err.status, 400);
     assert!(err.message.contains("1 stale"), "{err}");
 }
+
+#[tokio::test]
+async fn sends_a_pr_draft_to_github_without_exporting_or_storing_local_threads() {
+    use diffle::protocol::{GithubCommentRequest, ThreadQuery};
+
+    let fixture = common::pr::Fixture::new();
+    let github = pr_review_client(&fixture, None);
+    let (session, snap) = start_pr_session(&fixture, &github).await;
+    let store = session.comments().unwrap();
+    let local = store.add_thread(CommentAnchor::File { path: "a.txt".into() }, "Local note".into()).await.unwrap();
+    github.clear();
+
+    let request = |version| -> GithubCommentRequest {
+        serde_json::from_value(json!({
+            "version": version,
+            "id": "47412657-64b1-4e44-982b-03f98da99cb1",
+            "comment": { "path": "a.txt", "startLine": 2, "body": "GitHub note" }
+        }))
+        .unwrap()
+    };
+    assert!(session.send_github_comment(request(snap.version - 1)).await.is_err());
+    assert!(github.calls().is_empty());
+    let response = session.send_github_comment(request(snap.version)).await.unwrap();
+    assert_eq!(response.posted, 1);
+    let calls = github.calls();
+    let write = calls.iter().find(|call| op(&call.query) == "createReview").unwrap();
+    let comments = write.variables["input"]["threads"].as_array().unwrap();
+    assert_eq!(comments.len(), 1);
+    assert_eq!(comments[0]["path"], "a.txt");
+    assert_eq!(comments[0]["line"], 2);
+    assert!(comments[0]["body"].as_str().unwrap().starts_with("GitHub note\n\n"));
+    let threads = store.threads(&ThreadQuery { path: None, state: None }).await.unwrap();
+    assert_eq!(threads.into_iter().map(|thread| thread.id).collect::<Vec<_>>(), [local.id]);
+    session.close().await;
+}
+
+fn pr_review_client(fixture: &common::pr::Fixture, pending: Option<&'static str>) -> FakeGithub {
+    let node = fixture.node(json!({ "headRefOid": fixture.head }));
+    FakeGithub::new(move |query, _| {
+        let result = if query.contains("headRefOid") {
+            json!({ "repository": { "pullRequest": node } })
+        } else if query.contains("submitPullRequestReview") {
+            json!({ "submitPullRequestReview": { "pullRequestReview": { "id": "PRR_SUBMITTED" } } })
+        } else {
+            answer(op(&query), pending, &[])
+        };
+        async move { Ok(result) }
+    })
+}
+
+async fn start_pr_session(
+    fixture: &common::pr::Fixture,
+    github: &FakeGithub,
+) -> (Arc<diffle::session::Session>, Arc<diffle::protocol::Snapshot>) {
+    use diffle::github::hosts::{Github, GithubInstance};
+    use diffle::protocol::{EnterRequest, FollowRefs};
+    use diffle::server::hub::Hub;
+    use diffle::session::{Session, SessionOptions};
+
+    let session = Session::new(
+        Arc::new(fixture.repo().await),
+        Hub::new(),
+        SessionOptions {
+            watch: false,
+            github: Github { instance: GithubInstance::github_com(), client: Some(Arc::new(github.clone())) },
+            context: 3,
+            follow_refs: FollowRefs::Off,
+            instance: "pr-review".into(),
+            checkout: false,
+        },
+    );
+    let review = session.resolve(EnterRequest::Pr { pr: Some(PR_URL.into()) }).await.unwrap();
+    let snap = session.start(review).await.unwrap();
+    (session, snap)
+}
+
+#[tokio::test]
+async fn submits_review_decisions_to_the_viewers_pending_review_or_the_reviewed_commit() {
+    use diffle::protocol::{GithubReviewDecision as Decision, GithubReviewSubmit};
+
+    for (pending, decision, summary, event) in [
+        (Some("PRR_MINE"), Decision::Comment, "", "COMMENT"),
+        (None, Decision::Comment, "General feedback", "COMMENT"),
+        (None, Decision::Approve, "", "APPROVE"),
+        (Some("PRR_MINE"), Decision::RequestChanges, "Please add a test", "REQUEST_CHANGES"),
+    ] {
+        let fixture = common::pr::Fixture::new();
+        let github = pr_review_client(&fixture, pending);
+        let (session, snap) = start_pr_session(&fixture, &github).await;
+        let request =
+            |version, decision, summary: &str| GithubReviewSubmit { version, decision, summary: summary.into() };
+        github.clear();
+        assert!(session.submit_github_review(request(snap.version - 1, decision, summary)).await.is_err());
+        assert!(github.calls().is_empty());
+
+        assert!(session.submit_github_review(request(snap.version, Decision::RequestChanges, " ")).await.is_err());
+        if pending.is_none() {
+            assert!(session.submit_github_review(request(snap.version, Decision::Comment, "")).await.is_err());
+        }
+        assert!(github.calls().iter().all(|call| !call.query.starts_with("mutation")));
+        github.clear();
+
+        session.submit_github_review(request(snap.version, decision, summary)).await.unwrap();
+        let calls = github.calls();
+        let writes: Vec<_> = calls.iter().filter(|call| call.query.starts_with("mutation")).collect();
+        assert_eq!(writes.len(), 1);
+        let input = &writes[0].variables["input"];
+        assert_eq!(input["event"], event);
+        assert_eq!(input["body"], if summary.is_empty() { Value::Null } else { json!(summary) });
+        if let Some(id) = pending {
+            assert!(writes[0].query.contains("submitPullRequestReview"));
+            assert_eq!(input["pullRequestReviewId"], id);
+        } else {
+            assert!(writes[0].query.contains("addPullRequestReview"));
+            assert_eq!(input["pullRequestId"], "PR_7");
+            assert_eq!(input["commitOID"], fixture.head);
+        }
+        session.close().await;
+    }
+}

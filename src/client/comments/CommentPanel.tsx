@@ -123,7 +123,7 @@ export function CommentPanel({
             title={
               post.armed
                 ? 'Click again to add all open threads to the pending review'
-                : 'Add all open threads to a pending review on the GitHub pull request; you submit it on GitHub'
+                : 'Add all open threads to a pending review on the GitHub pull request'
             }
             aria-label={
               post.armed
