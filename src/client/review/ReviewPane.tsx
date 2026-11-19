@@ -37,7 +37,12 @@ import { GithubThreadCard } from '@/client/github/GithubThreadCard.js';
 import { useGithubComments } from '@/client/github/useGithubComments.js';
 import { CopyIcon } from '@/client/ui/CopyIcon.js';
 import { lineBounds, sideOf } from '@/client/comments/anchor.js';
-import { githubThreadKey, localThreadKey, useInlineExpansion } from '@/client/comments/inlineExpansion.js';
+import {
+  githubThreadKey,
+  localThreadKey,
+  setInlineExpanded,
+  useInlineExpansion,
+} from '@/client/comments/inlineExpansion.js';
 import { withInlineThreads, type InlineThread } from '@/client/comments/inlinePresentation.js';
 import {
   FileThreadMarker,
@@ -355,7 +360,7 @@ export function ReviewPane() {
     const threadsByPath = new Map<string, CommentThread[]>();
     for (const t of threads) {
       const path = anchorPath(t.anchor);
-      if (path == null) continue;
+      if (path == null || t.stale) continue;
       const list = threadsByPath.get(path);
       if (list) list.push(t);
       else threadsByPath.set(path, [t]);
@@ -365,8 +370,8 @@ export function ReviewPane() {
       const github = githubByPath.get(path) ?? [];
       const v = itemVersion(versions.current.get(path), [
         ...itemDeps({ draft, replyTo, editingId }, path, mine, folded),
-        ...mine.map((thread) => inlineExpanded.has(localThreadKey(thread.id))),
-        ...github.flatMap(({ thread, line }) => [thread, line, inlineExpanded.has(githubThreadKey(thread.id))]),
+        ...mine.map((thread) => inlineExpanded.get(localThreadKey(thread.id))),
+        ...github.flatMap(({ thread, line }) => [thread, line, inlineExpanded.get(githubThreadKey(thread.id))]),
       ]);
       versions.current.set(path, v);
       const inline: InlineThread[] = [
@@ -1039,7 +1044,12 @@ export function ReviewPane() {
       const range = draftRange(useStore.getState());
       return <CommentComposer label={range ? rangeLabel(range) : 'whole file'} />;
     }
-    return <CommentCard thread={meta.thread} />;
+    return (
+      <CommentCard
+        thread={meta.thread}
+        onCollapse={() => setInlineExpanded(localThreadKey(meta.thread.id), false, !meta.thread.resolved)}
+      />
+    );
   }, []);
 
   const resizeHeader = useCallback(

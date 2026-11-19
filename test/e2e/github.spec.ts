@@ -1,7 +1,7 @@
 import { clickCentred, gotoFile, selectLines, settle } from './browser.js';
 import { expect, test as base } from './fixtures.js';
 import { githubFixture, path } from './github-fixture.js';
-import { seedThreads, startDiffle } from './server.js';
+import { seedReply, seedThreads, startDiffle } from './server.js';
 
 const test = base.extend<{ github: Awaited<ReturnType<typeof githubFixture>> }>({
   github: async ({ repo }, use) => {
@@ -17,7 +17,7 @@ const test = base.extend<{ github: Awaited<ReturnType<typeof githubFixture>> }>(
 
 test.use({ revs: ['pr', '7'], args: ['--no-checkout'] });
 
-test('shows the GitHub conversation in code from ordinary file navigation', async ({ page }) => {
+test('shows dated GitHub comments in code and toggles the card and line icon', async ({ page }) => {
   const panel = page.getByRole('region', { name: 'GitHub comments' });
   await expect(panel.getByText('This currency needs three places.')).toBeVisible();
   await gotoFile(page, path);
@@ -26,6 +26,18 @@ test('shows the GitHub conversation in code from ordinary file navigation', asyn
     .getByRole('article', { name: 'GitHub thread in code' })
     .filter({ hasText: 'Why does this use three places?' });
   await expect(thread.getByText('Why does this use three places?')).toBeVisible();
+  await expect(thread.getByText('This currency needs three places.')).toBeVisible();
+  await expect(thread.locator('time')).toHaveText(['May 31, 2024', 'May 31, 2024']);
+  await expect(
+    panel.locator('article').filter({ hasText: 'This currency needs three places.' }).locator('time'),
+  ).toHaveText('May 31, 2024');
+
+  await clickCentred(thread.getByText('Why does this use three places?'));
+  await expect(thread).toHaveCount(0);
+  await page
+    .locator('[data-column-number="20"]')
+    .getByRole('button', { name: 'Open GitHub thread', exact: true })
+    .click();
   await expect(thread.getByText('This currency needs three places.')).toBeVisible();
 });
 
@@ -102,11 +114,15 @@ test('restores open cards and clickable GitHub and local gutter markers after a 
   diffle,
   github,
 }) => {
-  const [resolved, resolvedFile] = await seedThreads(diffle.url, [
+  const [resolved, resolvedFile, local] = await seedThreads(diffle.url, [
     { path, startLine: 7, body: 'Resolved local comment' },
     { path, body: 'Resolved file comment' },
     { path, startLine: 8, body: 'Open local comment' },
   ]);
+  const conversation = await seedReply(diffle.url, local!.id, {
+    body: 'Local reply with its own date',
+    author: 'agent',
+  });
   for (const thread of [resolved!, resolvedFile!]) {
     const response = await page.request.put(new URL(`api/threads/${thread.id}/resolved`, diffle.url).href, {
       data: { resolved: true },
@@ -117,7 +133,6 @@ test('restores open cards and clickable GitHub and local gutter markers after a 
   const gutter = (line: number) => code.locator(`[data-column-number="${line}"]`);
   const name = (status: string, origin: string) => `Open ${status} ${origin} thread`;
   const resolvedGithub = gutter(18).getByRole('button', { name: name('resolved', 'GitHub') });
-  const outdated = gutter(19).getByRole('button', { name: name('outdated', 'GitHub') });
   const resolvedLocal = gutter(7).getByRole('button', { name: name('resolved', 'local') });
   await gotoFile(page, path);
   await expect(code.getByText('Resolved discussion')).toHaveCount(0);
@@ -150,13 +165,27 @@ test('restores open cards and clickable GitHub and local gutter markers after a 
     await gotoFile(page, path);
     await expect(code.getByText(arrived)).toBeVisible();
     await expect(code.getByText('Open local comment')).toBeVisible();
+    for (const message of conversation.messages) {
+      const date = code.locator('[class~="group/message"]').filter({ hasText: message.body }).locator('time');
+      await expect(date).toBeVisible();
+      await expect(date).toHaveAttribute('datetime', new Date(message.createdAt).toISOString());
+    }
     await expect(code.getByText('Resolved discussion')).toHaveCount(0);
     await expect(code.getByText('Outdated discussion')).toHaveCount(0);
+    await expect(code.getByRole('button', { name: /outdated GitHub thread/ })).toHaveCount(0);
+    const outdated = page
+      .getByRole('region', { name: 'GitHub comments' })
+      .locator('details')
+      .filter({ hasText: 'Outdated discussion' });
+    await expect(outdated.getByText('Outdated discussion')).toBeVisible();
+    await expect(outdated.getByRole('button', { name: 'reviewer' })).toHaveCount(0);
     await expect(code.getByText('Resolved local comment')).toHaveCount(0);
     await resolvedGithub.click();
     await expect(code.getByText('Resolved discussion')).toBeVisible();
-    await outdated.click();
-    await expect(code.getByText('Outdated discussion')).toBeVisible();
+    await clickCentred(code.getByText('Open local comment'));
+    await expect(code.getByText('Open local comment')).toHaveCount(0);
+    await gutter(8).getByRole('button', { name: 'Open local thread', exact: true }).click();
+    await expect(code.getByText('Local reply with its own date')).toBeVisible();
     await resolvedLocal.click();
     await expect(code.getByText('Resolved local comment')).toBeVisible();
     await gutter(7).getByRole('button', { name: 'Collapse resolved local thread' }).click();

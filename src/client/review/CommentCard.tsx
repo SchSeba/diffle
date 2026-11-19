@@ -22,7 +22,9 @@ import { ThreadIcon } from '@/client/comments/AgentMark.js';
 import { anchorPath } from '@/client/comments/threads.js';
 import { useCopied } from '@/client/clipboard.js';
 import { Markdown } from '@/client/Markdown.js';
-import { anchorLabel, composerKey, exportLabel, relativeTime, type ExportOutcome } from '@/client/model.js';
+import { anchorLabel, composerKey, exportLabel, type ExportOutcome } from '@/client/model.js';
+import { CommentDate } from '@/client/comments/CommentDate.js';
+import { collapseFromCardClick, InlineThreadCollapse } from '@/client/comments/InlineThreadCollapse.js';
 import { useStore } from '@/client/store.js';
 import { ButtonLabel } from '@/client/ui/ButtonLabel.js';
 import { useConfirm } from '@/client/useConfirm.js';
@@ -31,7 +33,15 @@ import { useConfirm } from '@/client/useConfirm.js';
  * A thread rendered inline under its last anchored line, or beside the tour: messages, reply
  * composer, resolve. `className` adjusts its outer spacing to where it sits.
  */
-export function CommentCard({ thread, className }: { thread: CommentThread; className?: string }) {
+export function CommentCard({
+  thread,
+  className,
+  onCollapse,
+}: {
+  thread: CommentThread;
+  className?: string;
+  onCollapse?: () => void;
+}) {
   const deleteThread = useStore((s) => s.deleteThread);
   const setResolved = useStore((s) => s.setResolved);
   const replying = useStore((s) => s.replyTo === thread.id);
@@ -58,8 +68,11 @@ export function CommentCard({ thread, className }: { thread: CommentThread; clas
 
   return (
     <div
+      role={onCollapse ? 'presentation' : undefined}
+      onClick={onCollapse && ((event) => collapseFromCardClick(event, onCollapse))}
       className={twMerge(
         `mx-2 my-1 overflow-hidden rounded-md border border-border bg-card p-0 font-sans text-[0.8125rem] shadow-card [&_.markdown]:[word-break:break-word] ${thread.stale ? 'border-dashed' : ''} ${thread.resolved ? 'opacity-70' : ''} ${focused ? 'border-accent shadow-[0_0_0_1px_var(--accent),_var(--review-card-shadow)]' : ''}`,
+        onCollapse && 'cursor-pointer',
         className,
       )}
     >
@@ -137,6 +150,7 @@ export function CommentCard({ thread, className }: { thread: CommentThread; clas
           <Trash2 size="0.875rem" />
           <ButtonLabel text={del.armed && 'Delete?'} />
         </Button>
+        {onCollapse && <InlineThreadCollapse label="Collapse local thread" onCollapse={onCollapse} />}
       </div>
       {thread.messages.map((m, i) => (
         <Message key={m.id} thread={thread} message={m} first={i === 0} />
@@ -171,8 +185,8 @@ function Message({ thread, message, first }: { thread: CommentThread; message: C
           {agent ? <Bot size="0.75rem" /> : <User size="0.75rem" />}
         </span>
         <span className="text-[0.75rem] font-semibold text-foreground">{agent ? 'Agent' : 'You'}</span>
-        <span className="text-[0.75rem] text-muted" title={new Date(message.createdAt).toLocaleString()}>
-          {relativeTime(message.createdAt)}
+        <span className="text-[0.75rem] text-muted">
+          <CommentDate createdAt={message.createdAt} />
           {message.updatedAt > message.createdAt && ' · edited'}
         </span>
         <span className="flex-1" />

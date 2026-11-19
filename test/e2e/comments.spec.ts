@@ -105,7 +105,7 @@ test('resolves and reopens a thread from the comments panel', async ({ page, dif
 test.describe('a stale local thread', () => {
   test.use({ revs: ['working'] });
 
-  test('opens from a marker at its last known line', async ({ page, diffle, repo }) => {
+  test('stays in the sidebar when its code anchor becomes stale', async ({ page, diffle, repo }) => {
     const path = 'tally/refunds.py';
     const file = join(repo, path);
     await seedThreads(diffle.url, [{ path, startLine: 18, body: 'Discuss the original refund logic.' }]);
@@ -121,10 +121,8 @@ test.describe('a stale local thread', () => {
     expect(reloaded.ok()).toBe(true);
     await expect.poll(async () => (await readThreads(diffle.url))[0]?.stale).toBe(true);
     await expect(body).toHaveCount(0);
-    const marker = code.locator('[data-column-number="18"]').getByRole('button', { name: 'Open stale local thread' });
-    await marker.click();
-    await expect(body).toBeVisible();
-    await expect(page.getByPlaceholder('Leave a comment…')).toHaveCount(0);
+    await expect(code.locator('[data-thread-marker]')).toHaveCount(0);
+    await expect(page.locator('aside').last().getByText('Discuss the original refund logic.')).toBeVisible();
   });
 });
 

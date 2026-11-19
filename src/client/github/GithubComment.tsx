@@ -1,5 +1,6 @@
 import { CornerDownLeft, ExternalLink } from 'lucide-react';
 import { Markdown } from '@/client/Markdown.js';
+import { CommentDate } from '@/client/comments/CommentDate.js';
 import type { GithubCommentMessage } from '@/shared/protocol.js';
 import { GithubPendingDelete } from './GithubPendingDelete.js';
 
@@ -28,7 +29,7 @@ export function GithubComment({
   const body = message.body.replace(/\n*<!-- diffle-thread:[^>]* -->\s*$/, '');
   return (
     <article className="px-2 py-1.5 wrap-anywhere">
-      <div className="mb-1 flex items-baseline gap-1.5">
+      <div className="mb-1 flex flex-wrap items-baseline gap-1.5">
         {onOpen ? (
           <button
             type="button"
@@ -41,6 +42,7 @@ export function GithubComment({
         ) : (
           <strong>{message.author}</strong>
         )}
+        <CommentDate createdAt={message.createdAt} />
         {state && <span className="text-muted">{state}</span>}
         {href && (
           <a

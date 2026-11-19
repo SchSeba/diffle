@@ -1,5 +1,5 @@
 import type { GithubCommentThread, Snapshot } from '@/shared/protocol.js';
-import { githubThreadKey, githubThreadStatus, setInlineExpanded } from '@/client/comments/inlineExpansion.js';
+import { githubThreadKey, setInlineExpanded } from '@/client/comments/inlineExpansion.js';
 import { useStore } from '@/client/store.js';
 import { showView } from '@/client/views/state.js';
 
@@ -17,13 +17,13 @@ function lineInComparison(snapshot: Snapshot, thread: GithubCommentThread): numb
     thread.pullRequest.headRefOid !== snapshot.newSha
   )
     return null;
-  return thread.line ?? (thread.isOutdated ? thread.originalLine : null);
+  return thread.line;
 }
 
 export function showGithubThread(prUrl: string, thread: GithubCommentThread): void {
   const store = useStore.getState();
   const snap = store.snapshot;
-  if (!snap || snap.review.kind !== 'range' || snap.review.pr?.url !== prUrl) return;
+  if (!snap || snap.review.kind !== 'range' || snap.review.pr?.url !== prUrl || thread.isOutdated) return;
   const file =
     snap.changed.find((item) => item.path === thread.path) ?? snap.changed.find((item) => item.oldPath === thread.path);
   const path = file?.path ?? thread.path;
@@ -31,7 +31,7 @@ export function showGithubThread(prUrl: string, thread: GithubCommentThread): vo
     store.flash('This file is outside the current comparison. Open the comment on GitHub.');
     return;
   }
-  if (githubThreadStatus(thread)) setInlineExpanded(githubThreadKey(thread.id), true);
+  setInlineExpanded(githubThreadKey(thread.id), true, !thread.isResolved);
   const side = thread.diffSide === 'LEFT' ? 'old' : 'new';
   const line = !file && side === 'old' ? null : lineInComparison(snap, thread);
   showView('diff');
@@ -50,6 +50,7 @@ export function githubThreadsByPath(
     snapshot.changed.filter(({ oldPath }) => oldPath).map(({ oldPath, path }) => [oldPath, path]),
   );
   for (const thread of threads) {
+    if (thread.isOutdated) continue;
     const path = changed.has(thread.path) ? thread.path : (renamed.get(thread.path) ?? thread.path);
     const entry = { prUrl, path, thread, line: lineInComparison(snapshot, thread) };
     const existing = byPath.get(path);

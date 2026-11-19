@@ -147,7 +147,7 @@ export function GithubCommentsPanel({ pr }: { pr: PullRef }) {
                       key={message.id}
                       message={message}
                       prUrl={pr.url}
-                      onOpen={() => showGithubThread(pr.url, thread)}
+                      onOpen={thread.isOutdated ? undefined : () => showGithubThread(pr.url, thread)}
                     />
                   ))}
                   {thread.comments.length === 0 && (

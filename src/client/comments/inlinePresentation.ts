@@ -1,7 +1,7 @@
 import type { CodeViewItem, DiffLineAnnotation, LineAnnotation } from '@pierre/diffs';
 import type { Annot } from '@/client/review/ReviewPane.js';
 import type { Side } from '@/shared/side.js';
-import { githubThreadKey, githubThreadStatus, localThreadKey, localThreadStatus } from './inlineExpansion.js';
+import { githubThreadKey, localThreadKey } from './inlineExpansion.js';
 import type { LineThreadMarker } from './ThreadMarker.js';
 
 export type InlineThread = Extract<Annot, { kind: 'thread' | 'github' }>;
@@ -11,21 +11,19 @@ function position(thread: InlineThread) {
     const { inline } = thread;
     return {
       key: githubThreadKey(inline.thread.id),
-      status: githubThreadStatus(inline.thread),
+      resolved: inline.thread.isResolved,
       origin: 'GitHub',
       line: inline.line,
       side: inline.thread.diffSide === 'LEFT' ? 'old' : 'new',
-      original: inline.thread.isOutdated ? inline.thread.originalLine : null,
     } as const;
   }
   const { anchor } = thread.thread;
   return {
     key: localThreadKey(thread.thread.id),
-    status: localThreadStatus(thread.thread),
+    resolved: thread.thread.resolved,
     origin: 'local',
     line: anchor.kind === 'line' ? anchor.endLine : null,
     side: anchor.kind === 'line' ? anchor.side : 'new',
-    original: thread.thread.stale && anchor.kind === 'line' ? (thread.thread.staleFromLine ?? anchor.startLine) : null,
   } as const;
 }
 
@@ -62,7 +60,7 @@ function unifiedContextLine(item: CodeViewItem<Annot>, oldLine: number): number 
 export function withInlineThreads(
   item: CodeViewItem<Annot> | null,
   threads: InlineThread[],
-  expanded: ReadonlySet<string>,
+  expanded: ReadonlyMap<string, boolean>,
   markers: Map<string, LineThreadMarker[]>,
   deleted: boolean,
   diffStyle: 'split' | 'unified',
@@ -73,14 +71,14 @@ export function withInlineThreads(
   const fileLines = contents ? contents.split('\n').length - Number(contents.endsWith('\n')) : 0;
   const annotations: DiffLineAnnotation<Annot>[] = [];
   for (const thread of threads) {
-    const { key, status, origin, line, side, original } = position(thread);
+    const { key, resolved, origin, line, side } = position(thread);
     const lineNumber = renderableLine(item, line, side, fileLines);
     const annotationSide = (lineNumber ? side === 'old' : deleted) ? 'deletions' : 'additions';
-    const open = !status || expanded.has(key);
-    if (status) {
-      const location = original == null ? '' : ` (last known line ${original})`;
-      const label = `${open ? 'Collapse' : 'Open'} ${status} ${origin} thread${location}`;
-      const marker = { key, label, open };
+    const defaultOpen = !resolved;
+    const open = expanded.get(key) ?? defaultOpen;
+    if (resolved || !open) {
+      const label = `${open ? 'Collapse' : 'Open'} ${resolved ? 'resolved ' : ''}${origin} thread`;
+      const marker = { key, label, open, defaultOpen };
       if (lineNumber) {
         const unified = diffStyle === 'unified' && side === 'old' ? unifiedContextLine(item, lineNumber) : null;
         gutter.push({ ...marker, line: unified ?? lineNumber, side: unified == null ? side : 'new' });

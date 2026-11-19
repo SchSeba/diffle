@@ -9,6 +9,7 @@ export interface ThreadMarker {
   key: string;
   label: string;
   open: boolean;
+  defaultOpen: boolean;
 }
 
 export interface LineThreadMarker extends ThreadMarker {
@@ -45,7 +46,7 @@ export function FileThreadMarker({ marker }: { marker: ThreadMarker }) {
       aria-label={marker.label}
       aria-expanded={marker.open}
       title={marker.label}
-      onClick={() => setInlineExpanded(marker.key, !marker.open)}
+      onClick={() => setInlineExpanded(marker.key, !marker.open, marker.defaultOpen)}
     >
       <MessageSquare size="0.875rem" />
     </Button>
@@ -68,7 +69,7 @@ function buttonFor(marker: ThreadMarker): HTMLButtonElement {
   };
   button.onclick = (event) => {
     event.stopPropagation();
-    setInlineExpanded(marker.key, !marker.open);
+    setInlineExpanded(marker.key, !marker.open, marker.defaultOpen);
   };
   return button;
 }

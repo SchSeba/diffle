@@ -12,7 +12,8 @@ import { Markdown } from '@/client/Markdown.js';
 import { ButtonLabel } from '@/client/ui/ButtonLabel.js';
 import { useConfirm } from '@/client/useConfirm.js';
 import { useStore } from '@/client/store.js';
-import { localThreadKey, localThreadStatus, setInlineExpanded } from './inlineExpansion.js';
+import { localThreadKey, setInlineExpanded } from './inlineExpansion.js';
+import { CommentDate } from './CommentDate.js';
 
 /**
  * One thread. Memoized on the thread object and the store's stable actions, so
@@ -35,10 +36,11 @@ export const ThreadRow = memo(function ThreadRow({
   const first = t.messages[0];
   const setResolved = useStore((s) => s.setResolved);
   const del = useConfirm(() => void deleteThread(t.id));
+  const canOpen = t.anchor.kind === 'tour' || !t.stale;
   const open = () => {
     // A file thread's card sits above the file's first line, where opening the file lands.
     if (t.anchor.kind === 'tour') return openTourThread(t.id);
-    if (localThreadStatus(t)) setInlineExpanded(localThreadKey(t.id), true);
+    setInlineExpanded(localThreadKey(t.id), true, !t.resolved);
     if (t.anchor.kind === 'line') void openFile(t.anchor.path, t.anchor.endLine, t.anchor.side);
     else void openFile(t.anchor.path);
     // From the tour's panel too, a thread on code opens in the diff.
@@ -49,14 +51,15 @@ export const ThreadRow = memo(function ThreadRow({
   return (
     // A div, not a button: the item hosts its own delete button.
     <div
-      role="button"
-      tabIndex={0}
+      role={canOpen ? 'button' : undefined}
+      tabIndex={canOpen ? 0 : undefined}
       className={twMerge(
-        `group/thread mb-2 block w-full cursor-pointer overflow-hidden rounded-md border border-border bg-card p-0 text-left font-sans text-[0.8125rem] leading-[1.4] text-foreground shadow-card [transition:border-color_120ms_ease] hover:border-accent focus-visible:outline-2 focus-visible:outline-offset-[1px] focus-visible:outline-accent focus-visible:outline-solid ${t.stale ? 'border-dashed' : ''} ${t.resolved ? 'opacity-65' : ''}`,
+        `group/thread mb-2 block w-full overflow-hidden rounded-md border border-border bg-card p-0 text-left font-sans text-[0.8125rem] leading-[1.4] text-foreground shadow-card [transition:border-color_120ms_ease] focus-visible:outline-2 focus-visible:outline-offset-[1px] focus-visible:outline-accent focus-visible:outline-solid ${t.stale ? 'border-dashed' : ''} ${t.resolved ? 'opacity-65' : ''}`,
+        canOpen && 'cursor-pointer hover:border-accent',
       )}
-      onClick={open}
+      onClick={canOpen ? open : undefined}
       onKeyDown={(e) => {
-        if (e.target !== e.currentTarget) return;
+        if (!canOpen || e.target !== e.currentTarget) return;
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           open();
@@ -76,8 +79,6 @@ export const ThreadRow = memo(function ThreadRow({
             {t.messages.length - 1} repl{t.messages.length === 2 ? 'y' : 'ies'}
           </span>
         )}
-        {/* The row shows the opening message, so the mark says who wrote that one. */}
-        {first?.author === 'agent' && <AgentMark size="0.6875rem" />}
         {t.stale && (
           <span className="inline-flex items-center gap-0.75 font-sans text-[0.6875rem] leading-[normal] text-warn">
             <AlertTriangle size="0.6875rem" /> stale
@@ -120,6 +121,12 @@ export const ThreadRow = memo(function ThreadRow({
         </Button>
       </div>
       <div className="px-2.5 pt-1.5 pb-2 [&>.markdown]:font-sans [&>.markdown]:text-[0.8125rem] [&>.markdown]:leading-[1.4] [&>.markdown]:[word-break:break-word]">
+        {first && (
+          <div className="mb-1 flex items-baseline gap-1.5 text-xs text-muted">
+            {first.author === 'agent' ? <AgentMark size="0.75rem" /> : <span>You</span>}
+            <CommentDate createdAt={first.createdAt} />
+          </div>
+        )}
         {t.anchor.kind === 'line' && (
           <div className="m-0 mb-1.5 overflow-hidden font-mono text-[0.75rem] leading-[1.4] text-ellipsis whitespace-nowrap text-muted">
             {firstLine(t.anchor.quoted)}
@@ -135,7 +142,10 @@ export const ThreadRow = memo(function ThreadRow({
             <summary className="cursor-pointer">Show replies</summary>
             {t.messages.slice(1).map((message) => (
               <div key={message.id} className="mt-2 border-l border-border pl-2 text-foreground">
-                {message.author === 'agent' && <AgentMark size="0.75rem" />}
+                <div className="mb-1 flex items-baseline gap-1.5 text-xs text-muted">
+                  {message.author === 'agent' ? <AgentMark size="0.75rem" /> : <span>You</span>}
+                  <CommentDate createdAt={message.createdAt} />
+                </div>
                 <Markdown text={message.body} />
               </div>
             ))}
