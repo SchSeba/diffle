@@ -118,6 +118,11 @@ Generated files start collapsed, as on GitHub: `linguist-generated` in `.gitattr
 them, and `linguist-generated=false` opts a file out. To collapse other files, add auto-viewed
 globs in settings or with `diffle config`.
 
+Settings are shared across repositories. Set the editor and terminal font sizes in pixels,
+or leave them blank to follow the app’s text size. Diffle saves these preferences in
+`~/.config/diffle/config.json` (`$XDG_CONFIG_HOME/diffle/config.json` when set).
+Run `diffle config` to see the active path and values.
+
 ## Take a tour of the change
 
 Before you review your agent's change, let it walk you through it. It writes a tour: one page

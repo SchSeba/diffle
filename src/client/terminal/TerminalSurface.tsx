@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Terminal } from 'ghostty-web';
 import { connectTerminal } from '@/client/api.js';
+import { useRemPx } from '@/client/scale.js';
+import { useStore } from '@/client/store.js';
 import { TerminalResizeSchema, TerminalStatusSchema } from '@/shared/protocol.js';
 import { loadTerminalFonts, terminalFont, terminalPalette } from './appearance.js';
 
@@ -17,7 +19,16 @@ let loading: ReturnType<typeof loadGhostty> | undefined;
 export function TerminalSurface({ token, active }: { token: string; active: boolean }) {
   const container = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal>(null);
+  const resizeTerminal = useRef<() => void>(null);
+  const fontSize = useStore((s) => s.config.terminalFontSize);
+  const rem = useRemPx();
+  const savedSize = useRef(fontSize);
   const [status, setStatus] = useState('Starting shell…');
+
+  useEffect(() => {
+    savedSize.current = fontSize;
+    resizeTerminal.current?.();
+  }, [fontSize, rem]);
 
   useEffect(() => {
     const host = container.current;
@@ -32,11 +43,11 @@ export function TerminalSurface({ token, active }: { token: string; active: bool
       });
       const [{ lib, ghostty }] = await Promise.all([loading, loadTerminalFonts()]);
       if (cancelled) return;
-      const style = getComputedStyle(host);
+      const size = () => savedSize.current ?? Number.parseFloat(getComputedStyle(host).fontSize);
       const term = new lib.Terminal({
         ghostty,
         fontFamily: terminalFont,
-        fontSize: Number.parseFloat(style.fontSize),
+        fontSize: size(),
         cursorBlink: true,
         cursorStyle: 'bar',
         scrollback: 5000,
@@ -53,15 +64,19 @@ export function TerminalSurface({ token, active }: { token: string; active: bool
         term.dispose();
       };
       const resize = () => {
+        if (host.clientHeight === 0) return;
+        term.options.fontSize = size();
         const dims = fit.proposeDimensions();
-        if (!dims || host.clientHeight === 0) return;
+        if (!dims) return;
         term.resize(Math.min(500, dims.cols), Math.min(300, dims.rows));
       };
+      resizeTerminal.current = resize;
       const observer = new ResizeObserver(resize);
       observer.observe(host);
       resize();
       const dispose = cleanup;
       cleanup = () => {
+        resizeTerminal.current = null;
         observer.disconnect();
         dispose();
       };
