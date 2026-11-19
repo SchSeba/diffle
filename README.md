@@ -243,6 +243,12 @@ returns to the graph as you left it.
 The graph needs the language servers, the same ones [Jump to definitions](#jump-to-definitions)
 uses.
 
+## Terminal
+
+Click **Terminal** or press Ctrl+`to toggle the resizable bottom panel. Create independent shells
+with **+**. Each shell starts in the directory where you ran Diffle (or the directory passed to`-C`). Hiding the panel keeps the shells running. Closing the browser tab or Diffle ends them.
+The terminal is available on a direct localhost connection. Use `--no-terminal` to disable it.
+
 ## Work with a coding agent
 
 A coding agent in the same repository talks to the diffle running there:

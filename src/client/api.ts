@@ -1,4 +1,16 @@
 import { z } from 'zod';
+
+export function terminalAccess(signal: AbortSignal): Promise<string> {
+  return text('api/terminal/access', { method: 'POST', signal });
+}
+
+export function connectTerminal(token: string): WebSocket {
+  const url = new URL(`api/terminal/socket?${q({ token })}`, location.href);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  const socket = new WebSocket(url);
+  socket.binaryType = 'arraybuffer';
+  return socket;
+}
 import { encode, json, q, text } from './http.js';
 import {
   BlameRequestSchema,

@@ -86,6 +86,7 @@ pub async fn run(req: EnterRequest, opts: GlobalOpts) -> anyhow::Result<()> {
         &server,
         &repo,
         lsp.clone(),
+        dir,
         (&github, token_source.as_deref()),
         &mut timing,
     );
@@ -120,6 +121,7 @@ async fn start(
     server: &Mutex<Served>,
     repo: &GitRepo,
     lsp: Option<Arc<LspPool>>,
+    launch_dir: std::path::PathBuf,
     (github, token_source): (&Github, Option<&str>),
     timing: &mut Timing,
 ) -> anyhow::Result<()> {
@@ -149,7 +151,11 @@ async fn start(
             probe: opts.port.is_none(),
         },
     };
-    let server_opts = ServerOptions { endpoint, allowed_origin: opts.allowed_origin.clone() };
+    let server_opts = ServerOptions {
+        endpoint,
+        allowed_origin: opts.allowed_origin.clone(),
+        launch_dir: (!opts.no_terminal).then_some(launch_dir),
+    };
     let (bound, url) = Server::listen(deps, server_opts).await?;
     server.lock().unwrap().server = Some(bound);
     timing.mark("listen");

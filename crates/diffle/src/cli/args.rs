@@ -98,6 +98,9 @@ pub struct GlobalOpts {
     /// do not open a browser
     #[arg(long = "no-open")]
     pub no_open: bool,
+    /// disable integrated browser shells
+    #[arg(long)]
+    pub no_terminal: bool,
     /// keep the server running after all browser tabs close
     #[arg(long)]
     pub keep_alive: bool,
@@ -283,6 +286,7 @@ impl GlobalOpts {
             allowed_origin: later.allowed_origin.or(self.allowed_origin),
             socket: later.socket.or(self.socket),
             no_open: self.no_open || later.no_open,
+            no_terminal: self.no_terminal || later.no_terminal,
             keep_alive: self.keep_alive || later.keep_alive,
             no_watch: self.no_watch || later.no_watch,
             auto_viewed: [self.auto_viewed, later.auto_viewed].concat(),

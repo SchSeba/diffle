@@ -8,6 +8,7 @@ import { documentTitle } from './model.js';
 import { useRemPx } from './scale.js';
 import { ServerLost } from './ServerLost.js';
 import { useStore } from './store.js';
+import { TerminalPanel } from './terminal/TerminalPanel.js';
 import { FileTreePane } from './tree/FileTreePane.js';
 import { refreshTour } from './tour/state.js';
 import { TooltipHost } from './ui/TitleTooltips.js';
@@ -121,7 +122,7 @@ export function App() {
   }, [boot, refreshSnapshot, refreshThreads, refreshViewed, refreshConfig, setLspStatus, setMoved]);
 
   return (
-    <div className="grid h-full grid-rows-[2.5rem_1fr]" style={{ gridTemplateColumns: columns }}>
+    <div className="grid h-full grid-rows-[2.5rem_minmax(0,1fr)_auto]" style={{ gridTemplateColumns: columns }}>
       <Header />
       {layout.treeVisible && (
         <>
@@ -145,6 +146,7 @@ export function App() {
           <ViewLayers part="Side" />
         </>
       )}
+      <TerminalPanel />
       {/* Above every view: the diff and the tour's symbol chips both open it. */}
       <SymbolMenu />
       <HelpOverlay />

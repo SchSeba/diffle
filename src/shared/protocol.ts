@@ -1272,6 +1272,16 @@ export type Activity = z.infer<typeof ActivitySchema>;
 
 export const ApiErrorSchema = z.object({ error: z.string() });
 
+export const TerminalResizeSchema = z.object({
+  cols: z.number().int().min(1).max(500),
+  rows: z.number().int().min(1).max(300),
+});
+
+export const TerminalStatusSchema = z.object({
+  error: z.string().optional(),
+  exitCode: z.number().int().optional(),
+});
+
 export const ReviewContextLineSchema = z.object({
   line: z.number().int(),
   text: z.string(),

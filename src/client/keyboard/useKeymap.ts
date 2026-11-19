@@ -9,6 +9,7 @@ import { activeView, panelOf, toggleView, useViews } from '@/client/views/state.
 import { copyCursorPermalink } from '@/client/review/permalink.js';
 import { useStore, type ReviewState } from '@/client/store.js';
 import { nextTheme } from '@/client/theme.js';
+import { toggleTerminal, useTerminalLayout } from '@/client/terminal/state.js';
 import type { BlameMode } from '@/shared/protocol.js';
 
 const CHORD_MS = 800;
@@ -166,6 +167,22 @@ export function useKeymap(): void {
         return;
       const s = useStore.getState();
       const target = realTarget(e);
+      if (
+        e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        !e.shiftKey &&
+        e.code === 'Backquote' &&
+        useTerminalLayout.getState().token &&
+        !target?.closest('[role="dialog"]')
+      ) {
+        e.preventDefault();
+        if (!e.repeat) toggleTerminal();
+        clearPending();
+        count.current = '';
+        return;
+      }
+      if (target?.closest('[data-terminal-input]')) return;
       // The count belongs to this press: every path below either uses it or, by
       // leaving it taken, drops it as vim does on a key that takes no count.
       const typed = count.current;
@@ -410,7 +427,7 @@ export function useKeymap(): void {
     };
     // The tree closes its search on Escape key-up and re-focuses its input; take focus back after that.
     const onKeyUp = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || realTarget(e)?.getAttribute('role') === 'combobox') return;
+      if (e.key !== 'Escape' || realTarget(e)?.closest('[role="combobox"], [data-terminal-input]')) return;
       // Escape that only closed a configuration pane leaves focus on the entry list.
       if (useStore.getState().modeMenuOpen && document.activeElement?.closest('#mode-picker')) return;
       setTimeout(focusReview, 0);
