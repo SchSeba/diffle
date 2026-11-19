@@ -39,6 +39,7 @@ pub fn routes() -> Router<Arc<ApiDeps>> {
         .route("/api/threads/{id}/messages/{mid}/export", get(export_message))
         .route("/api/github/export", post(github_export))
         .route("/api/github/comment", post(github_comment))
+        .route("/api/github/comments", get(github_comments).delete(delete_github_comment))
         .route("/api/github/review", post(github_review))
         .route("/api/viewed", get(viewed).put(set_viewed))
         .route("/api/viewed/bulk", put(set_viewed_bulk))
@@ -235,6 +236,15 @@ struct GithubExportRequest {
 async fn github_export(State(d): State<Arc<ApiDeps>>, raw: Bytes) -> ApiResult {
     let req: GithubExportRequest = body(&raw)?;
     Ok(Json(d.session.export_github(req.thread_ids).await?).into_response())
+}
+
+async fn delete_github_comment(State(d): State<Arc<ApiDeps>>, raw: Bytes) -> ApiResult {
+    d.session.delete_github_pending_comment(body(&raw)?).await?;
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+async fn github_comments(State(d): State<Arc<ApiDeps>>) -> ApiResult {
+    Ok(Json(d.session.github_comments().await?).into_response())
 }
 
 async fn github_comment(State(d): State<Arc<ApiDeps>>, raw: Bytes) -> ApiResult {

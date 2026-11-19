@@ -107,7 +107,7 @@ function ReviewDialog({
               value={summary}
               onValueChange={setSummary}
               placeholder="Summarize your review…"
-              className="mt-1 block min-h-24 w-full resize-y rounded border border-border bg-surface px-2 py-1.5"
+              className="mt-1 block min-h-24 w-full resize-y rounded-sm border border-border bg-surface px-2 py-1.5"
               required={requiresSummary}
               disabled={saving}
             />

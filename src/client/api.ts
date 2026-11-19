@@ -1,5 +1,12 @@
 import { z } from 'zod';
 
+export const githubCommentsEvent = 'diffle:github-comments';
+
+function githubCommentsChanged<T>(value: T): T {
+  window.dispatchEvent(new Event(githubCommentsEvent));
+  return value;
+}
+
 export function terminalAccess(signal: AbortSignal): Promise<string> {
   return text('api/terminal/access', { method: 'POST', signal });
 }
@@ -18,6 +25,8 @@ import {
   ConfigUpdateSchema,
   GithubExportRequestSchema,
   GithubCommentRequestSchema,
+  GithubCommentsSchema,
+  GithubPendingCommentDeleteSchema,
   GithubReviewSubmitSchema,
   type GithubReviewSubmit,
   type GithubCommentRequest,
@@ -88,6 +97,12 @@ import type { Side } from '@/shared/side.js';
 
 export const api = {
   /** The server's release; answers before the first review resolves. */
+  deleteGithubPendingComment: (id: string, prUrl: string) =>
+    json(z.undefined(), 'api/github/comments', {
+      method: 'DELETE',
+      body: encode(GithubPendingCommentDeleteSchema, { id, prUrl }),
+    }).then(githubCommentsChanged),
+  githubComments: (signal: AbortSignal) => json(GithubCommentsSchema, 'api/github/comments', { signal }),
   github: () => json(GithubMetadataSchema, 'api/github'),
   /** A link to lines on origin's forge, or why there is none; local refs only, so it answers at once. */
   permalink: (req: PermalinkRequest) =>
@@ -141,7 +156,6 @@ export const api = {
       SearchResponseSchema,
       `api/search?${q({ q: query, word: opts.word ? '1' : undefined, i: opts.ignoreCase ? '1' : undefined, re: opts.regex ? '1' : undefined, scope: opts.scope, content: opts.content, path: opts.path })}`,
     ),
-  /** The shown set's threads, and its tour's checklist items each paired with its tick and answer. */
   threads: (query: ThreadQuery = {}) =>
     json(ThreadListSchema, `api/threads?${q({ state: query.state, path: query.path })}`),
   /** Open threads as the agent prompt. */
@@ -154,17 +168,17 @@ export const api = {
     json(GithubExportResponseSchema, 'api/github/export', {
       method: 'POST',
       body: encode(GithubExportRequestSchema, req),
-    }),
+    }).then(githubCommentsChanged),
   submitGithubReview: (req: GithubReviewSubmit) =>
     json(z.undefined(), 'api/github/review', {
       method: 'POST',
       body: encode(GithubReviewSubmitSchema, req),
-    }),
+    }).then(githubCommentsChanged),
   addGithubComment: (req: GithubCommentRequest) =>
     json(GithubExportResponseSchema, 'api/github/comment', {
       method: 'POST',
       body: encode(GithubCommentRequestSchema, req),
-    }),
+    }).then(githubCommentsChanged),
   addThread: (t: ThreadCreate) =>
     json(CommentThreadSchema.array(), 'api/threads', { method: 'POST', body: encode(ThreadCreateSchema, t) }),
   addTourThread: (t: TourThreadCreate) =>

@@ -13,6 +13,7 @@ import { ButtonLabel } from '@/client/ui/ButtonLabel.js';
 import { useConfirm } from '@/client/useConfirm.js';
 import { CommitNavigator } from './CommitNavigator.js';
 import { IterationList } from './IterationList.js';
+import { GithubCommentsPanel } from '@/client/github/GithubCommentsPanel.js';
 import { ThreadRow } from './ThreadRow.js';
 import { anchorPath, compareThreads } from './threads.js';
 
@@ -43,6 +44,7 @@ export function CommentPanel({
   const canExport = useStore((s) => s.github.data?.reason === null);
   const copiedAll = useStore((s) => s.copiedAll);
   const snapshot = useStore((s) => s.snapshot);
+  const pr = snapshot?.review.kind === 'range' ? snapshot.review.pr : undefined;
   const off = snapshot ? commentsOff(snapshot.review) : null;
   const [posting, setPosting] = useState(false);
   const [manual, setManual] = useState<string | null>(null);
@@ -205,6 +207,7 @@ export function CommentPanel({
           </section>
         ))}
       </div>
+      {pr && <GithubCommentsPanel key={pr.url} pr={pr} />}
       {manual && (
         <Dialog open onOpenChange={() => setManual(null)}>
           <DialogContent aria-label="Copy manually">

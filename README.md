@@ -157,6 +157,9 @@ or file comment. GitHub comments go to your pending review. Open **Review change
 general comment and submit the review as **Comment**, **Approve**, or **Request changes**. Pending
 GitHub comments are included.
 
+The **GitHub comments** panel below Threads shows the PR discussion and inline threads, including
+resolved and outdated ones. Drag its divider to resize it.
+
 The pull request icon adds one thread, or all open threads, to a pending review on the PR.
 Adding a thread again updates its pending comment. You can also edit, drop, or submit pending
 comments on GitHub.

@@ -1329,3 +1329,41 @@ export const FeedbackContextSchema = z.object({
 });
 
 export const FeedbackReplySchema = z.object({ summary: z.string() });
+
+export const GithubCommentMessageSchema = z.object({
+  id: z.string(),
+  author: z.string(),
+  body: z.string(),
+  createdAt: z.string(),
+  url: z.string().url(),
+  state: z.string().optional(),
+  canDelete: z.boolean().optional(),
+});
+
+export const GithubPendingCommentDeleteSchema = z.object({
+  id: z.string().min(1),
+  prUrl: z.string(),
+});
+export type GithubPendingCommentDelete = z.infer<typeof GithubPendingCommentDeleteSchema>;
+
+export const GithubCommentThreadSchema = z.object({
+  id: z.string(),
+  path: z.string(),
+  line: z.number().int().nullable(),
+  startLine: z.number().int().nullable(),
+  originalLine: z.number().int().nullable(),
+  originalStartLine: z.number().int().nullable(),
+  diffSide: z.enum(['LEFT', 'RIGHT']),
+  isResolved: z.boolean(),
+  isOutdated: z.boolean(),
+  comments: GithubCommentMessageSchema.array().default([]),
+});
+
+export type GithubCommentThread = z.infer<typeof GithubCommentThreadSchema>;
+
+export const GithubCommentsSchema = z.object({
+  threads: GithubCommentThreadSchema.array(),
+  conversation: GithubCommentMessageSchema.array(),
+});
+export type GithubComments = z.infer<typeof GithubCommentsSchema>;
+export type GithubCommentMessage = z.infer<typeof GithubCommentMessageSchema>;

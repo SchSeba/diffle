@@ -182,7 +182,7 @@ export function useKeymap(): void {
         count.current = '';
         return;
       }
-      if (target?.closest('[data-terminal-input]')) return;
+      if (target?.closest('[data-terminal-input], [data-github-comments-resize]')) return;
       // The count belongs to this press: every path below either uses it or, by
       // leaving it taken, drops it as vim does on a key that takes no count.
       const typed = count.current;

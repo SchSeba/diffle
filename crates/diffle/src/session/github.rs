@@ -31,6 +31,42 @@ fn changed() -> GithubError {
 }
 
 impl Session {
+    pub async fn delete_github_pending_comment(
+        &self,
+        request: crate::protocol::GithubPendingCommentDelete,
+    ) -> Result<()> {
+        let _turn = self.exporter.turn().await;
+        let active = self.active()?;
+        let Some(url) = pr_url(&active.review).filter(|url| url == &request.pr_url) else {
+            return Err(changed().into());
+        };
+        let Some(client) = self.github.client.as_deref() else {
+            return Err(GithubError::conflict(no_token(&self.github.instance.host)).into());
+        };
+        let database_id = crate::github::comments::pending_comment_id(client, &url, &request.id).await?;
+        if !self.is_active(&active) {
+            return Err(changed().into());
+        }
+        let (owner, repo) = crate::github::pulls::repo_of_pr_url(&url)?;
+        client.delete_review_comment(&owner, &repo, database_id).await?;
+        Ok(())
+    }
+
+    pub async fn github_comments(&self) -> Result<crate::protocol::GithubComments> {
+        let active = self.active()?;
+        let crate::protocol::Review::Range { pr: Some(pr), .. } = &active.review else {
+            return Err(GithubError::conflict("Open a pull request with diffle pr").into());
+        };
+        let Some(client) = self.github.client.as_deref() else {
+            return Err(GithubError::conflict(no_token(&self.github.instance.host)).into());
+        };
+        let comments = crate::github::comments::read(client, pr).await?;
+        if !self.is_active(&active) {
+            return Err(changed().into());
+        }
+        Ok(comments)
+    }
+
     /// The pull request `snap` belongs to, cached apart from snapshot construction, so callers never
     /// hold the transition queue. A failed lookup is forgotten at once.
     pub async fn github_metadata(self: &Arc<Self>, snap: &Arc<Snapshot>) -> Result<GithubMetadata> {
