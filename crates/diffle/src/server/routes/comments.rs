@@ -17,13 +17,14 @@ use tokio::time::Instant;
 
 use super::{ApiDeps, ApiError, ApiResult, body, query};
 use crate::comments::activity::{Change, Cursor, Since};
-use crate::comments::format::format_prompt;
+use crate::comments::format_followup;
 use crate::comments::import::parse_imports;
 use crate::error::Error;
 use crate::protocol::{
     Activity, ActivityQuery, AuthorQuery, ClearThreadsQuery, CommentAuthor, MessagePatch, ReplyCreate, ResolvedRequest,
     ServerMessage, ThreadList, ThreadQuery, ThreadState, ViewedEntry,
 };
+use crate::protocol::{GithubCommentRequest, GithubReviewSubmit};
 use crate::session::Broadcaster;
 
 pub fn routes() -> Router<Arc<ApiDeps>> {
@@ -37,6 +38,11 @@ pub fn routes() -> Router<Arc<ApiDeps>> {
         .route("/api/threads/{id}/messages/{mid}", patch(edit_message).delete(remove_message))
         .route("/api/threads/{id}/messages/{mid}/export", get(export_message))
         .route("/api/github/export", post(github_export))
+        .route("/api/github/comment", post(github_comment))
+        .route("/api/github/comments", get(github_comments).patch(edit_github_comment).delete(delete_github_comment))
+        .route("/api/github/thread/reply", post(github_thread_reply))
+        .route("/api/github/thread/resolved", put(github_thread_resolved))
+        .route("/api/github/review", post(github_review))
         .route("/api/viewed", get(viewed).put(set_viewed))
         .route("/api/viewed/bulk", put(set_viewed_bulk))
 }
@@ -69,7 +75,8 @@ async fn export(State(d): State<Arc<ApiDeps>>, RawQuery(raw): RawQuery) -> ApiRe
     let threads = d.session.comments()?.threads(&q).await?;
     // A prompt for one path is about its code; the checklist is about the tour.
     let checks = if q.path.is_some() { Vec::new() } else { crate::tour::checklist(&d.session, &threads).await? };
-    Ok(text(format_prompt(&threads, &checks)))
+    let pending = d.session.pending_feedback().await?;
+    Ok(text(format_followup(&threads, &checks, &pending, true)))
 }
 
 async fn export_message(State(d): State<Arc<ApiDeps>>, Path((id, mid)): Path<(String, String)>) -> ApiResult {
@@ -78,7 +85,8 @@ async fn export_message(State(d): State<Arc<ApiDeps>>, Path((id, mid)): Path<(St
         return Err(Error::NotFound(mid).into());
     };
     thread.messages = vec![message];
-    Ok(text(format_prompt(&[thread], &[])))
+    let pending = d.session.pending_feedback().await?;
+    Ok(text(format_followup(&[thread], &[], &pending, true)))
 }
 
 /// One object or an array. Answers what was created; open duplicates are skipped.
@@ -99,14 +107,18 @@ async fn reply(State(d): State<Arc<ApiDeps>>, Path(id): Path<String>, raw: Bytes
     if req.body.trim().is_empty() {
         return Err(ApiError::bad_request("body: body required"));
     }
-    let thread = d.session.comments()?.reply(&id, req.body, req.author).await?;
+    let thread = if req.author.is_none() {
+        d.session.follow_up(id.clone(), req.body).await?
+    } else {
+        d.session.comments()?.reply(&id, req.body, req.author).await?
+    };
     changed(&d, [(req.author, id)]);
     Ok((StatusCode::CREATED, Json(thread)).into_response())
 }
 
 async fn edit_message(State(d): State<Arc<ApiDeps>>, Path((id, mid)): Path<(String, String)>, raw: Bytes) -> ApiResult {
     let req: MessagePatch = body(&raw)?;
-    let thread = d.session.comments()?.edit_message(&id, &mid, req.body).await?;
+    let thread = d.session.comments()?.edit_message(&id, &mid, req.body, req.author).await?;
     changed(&d, [(req.author, id)]);
     Ok(Json(thread).into_response())
 }
@@ -222,19 +234,53 @@ struct GithubExportRequest {
     thread_ids: Option<Vec<String>>,
 }
 
-/// Adds threads to a pending review on the matching pull request; the human submits it on GitHub.
+/// Adds threads to a pending review on the matching pull request.
 async fn github_export(State(d): State<Arc<ApiDeps>>, raw: Bytes) -> ApiResult {
     let req: GithubExportRequest = body(&raw)?;
     Ok(Json(d.session.export_github(req.thread_ids).await?).into_response())
 }
 
+async fn delete_github_comment(State(d): State<Arc<ApiDeps>>, raw: Bytes) -> ApiResult {
+    d.session.delete_github_pending_comment(body(&raw)?).await?;
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+async fn github_comments(State(d): State<Arc<ApiDeps>>) -> ApiResult {
+    Ok(Json(d.session.github_comments().await?).into_response())
+}
+
+async fn edit_github_comment(State(d): State<Arc<ApiDeps>>, raw: Bytes) -> ApiResult {
+    d.session.edit_github_pending_comment(body(&raw)?).await?;
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+async fn github_thread_reply(State(d): State<Arc<ApiDeps>>, raw: Bytes) -> ApiResult {
+    d.session.reply_github_thread(body(&raw)?).await?;
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+async fn github_thread_resolved(State(d): State<Arc<ApiDeps>>, raw: Bytes) -> ApiResult {
+    d.session.resolve_github_thread(body(&raw)?).await?;
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+async fn github_comment(State(d): State<Arc<ApiDeps>>, raw: Bytes) -> ApiResult {
+    let request: GithubCommentRequest = body(&raw)?;
+    Ok(Json(d.session.send_github_comment(request).await?).into_response())
+}
+
+async fn github_review(State(d): State<Arc<ApiDeps>>, raw: Bytes) -> ApiResult {
+    d.session.submit_github_review(body::<GithubReviewSubmit>(&raw)?).await?;
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
 async fn viewed(State(d): State<Arc<ApiDeps>>) -> ApiResult {
-    Ok(Json(d.session.comments()?.viewed().await?).into_response())
+    Ok(Json(d.session.viewed_marks().await?).into_response())
 }
 
 async fn set_viewed(State(d): State<Arc<ApiDeps>>, raw: Bytes) -> ApiResult {
     let entry: ViewedEntry = body(&raw)?;
-    let list = d.session.comments()?.set_viewed(&entry.path, &entry.blob, entry.viewed).await?;
+    let list = d.session.set_viewed_mark(entry).await?;
     d.hub.broadcast(ServerMessage::Viewed);
     Ok(Json(list).into_response())
 }
@@ -246,7 +292,7 @@ struct ViewedBulk {
 
 async fn set_viewed_bulk(State(d): State<Arc<ApiDeps>>, raw: Bytes) -> ApiResult {
     let req: ViewedBulk = body(&raw)?;
-    let list = d.session.comments()?.set_viewed_many(req.entries).await?;
+    let list = d.session.set_viewed_marks(req.entries).await?;
     d.hub.broadcast(ServerMessage::Viewed);
     Ok(Json(list).into_response())
 }

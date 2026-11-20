@@ -103,11 +103,20 @@ export const DIFF_HELP: HelpSection[][] = [
     {
       title: 'Iterations',
       rows: [
-        ['r', 'reload once the compared refs moved'],
+        ['r', 'fetch the whole PR again or reload moved refs'],
         ['ii', 'latest iteration vs. the one before; again: the range'],
         ['ij / ik', 'span’s lower end one iteration older / newer'],
         ['iJ / iK', 'span’s higher end one iteration older / newer'],
         ['i, then 1–9', 'compare that iteration with the latest'],
+      ],
+    },
+    {
+      title: 'Terminal',
+      rows: [
+        ['Ctrl+`', 'toggle the terminal panel'],
+        ['Alt+Shift+g', 'open and focus the current terminal'],
+        ['Alt+Shift+j / k', 'next / previous terminal tab'],
+        ['Alt+Shift+h / l', 'focus the terminal pane to the left / right'],
       ],
     },
     {

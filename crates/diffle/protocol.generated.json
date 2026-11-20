@@ -540,6 +540,35 @@
         },
         "blame": {
           "$ref": "#/$defs/BlameMode"
+        },
+        "textScale": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "editorFontSize": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 8,
+              "maximum": 48
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "terminalFontSize": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 8,
+              "maximum": 48
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "description": "Writable HTTP config fields; unknown keys, including CLI-only lspCommands and githubHosts, are stripped."
@@ -614,6 +643,81 @@
       ],
       "description": "What the CLI and the picker enter a review with: the words, parsed and resolved by the server\ninto a `Review`. A slice of the active range is chosen with a `RangeView` instead."
     },
+    "FeedbackContext": {
+      "type": "object",
+      "properties": {
+        "item": {
+          "$ref": "#/$defs/FeedbackItem"
+        },
+        "location": {
+          "$ref": "#/$defs/FeedbackLocation"
+        },
+        "current": {
+          "$ref": "#/$defs/ReviewEvidence"
+        }
+      },
+      "required": [
+        "item",
+        "location"
+      ]
+    },
+    "FeedbackItem": {
+      "type": "object",
+      "properties": {
+        "target": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "messageId": {
+          "type": "string"
+        },
+        "feedback": {
+          "type": "string"
+        },
+        "anchor": {
+          "$ref": "#/$defs/CommentAnchor"
+        },
+        "original": {
+          "$ref": "#/$defs/ReviewEvidence"
+        }
+      },
+      "required": [
+        "target",
+        "threadId",
+        "messageId",
+        "feedback",
+        "anchor"
+      ]
+    },
+    "FeedbackLocation": {
+      "type": "string",
+      "enum": [
+        "unchanged",
+        "moved",
+        "changed",
+        "deleted",
+        "ambiguous",
+        "unlocated",
+        "unavailable",
+        "original-side",
+        "historical",
+        "file",
+        "tour"
+      ]
+    },
+    "FeedbackReply": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "summary"
+      ]
+    },
     "FileAnchor": {
       "type": "object",
       "properties": {
@@ -676,6 +780,205 @@
       ],
       "description": "How a review between refs reacts when one of them moves. `on`: recompute at once, as a worktree\nreview follows edits. `off`: announce the move and wait for Reload. `auto`: wait for Reload when an\nendpoint names a branch, whose pushes and rebases should not swap the review out under the\nreviewer; recompute at once otherwise (a detached HEAD, a tag, an expression)."
     },
+    "GithubCommentMessage": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "author": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "state": {
+          "type": "string"
+        },
+        "canDelete": {
+          "type": "boolean"
+        },
+        "canEdit": {
+          "type": "boolean"
+        },
+        "isOwnPending": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "author",
+        "body",
+        "createdAt",
+        "url",
+        "canEdit",
+        "isOwnPending"
+      ]
+    },
+    "GithubCommentRequest": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "id": {
+          "type": "string"
+        },
+        "comment": {
+          "$ref": "#/$defs/ThreadCreate"
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "comment"
+      ]
+    },
+    "GithubComments": {
+      "type": "object",
+      "properties": {
+        "threads": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/GithubCommentThread"
+          }
+        },
+        "conversation": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/GithubCommentMessage"
+          }
+        }
+      },
+      "required": [
+        "threads",
+        "conversation"
+      ]
+    },
+    "GithubCommentThread": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "pullRequest": {
+          "type": "object",
+          "properties": {
+            "headRefOid": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "headRefOid"
+          ],
+          "description": "The PR head that GitHub's current line numbers refer to."
+        },
+        "path": {
+          "type": "string"
+        },
+        "line": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "startLine": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "originalLine": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "originalStartLine": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "diffSide": {
+          "type": "string",
+          "enum": [
+            "LEFT",
+            "RIGHT"
+          ]
+        },
+        "isResolved": {
+          "type": "boolean"
+        },
+        "isOutdated": {
+          "type": "boolean"
+        },
+        "viewerCanReply": {
+          "type": "boolean"
+        },
+        "viewerCanResolve": {
+          "type": "boolean"
+        },
+        "viewerCanUnresolve": {
+          "type": "boolean"
+        },
+        "comments": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/GithubCommentMessage"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "pullRequest",
+        "path",
+        "line",
+        "startLine",
+        "originalLine",
+        "originalStartLine",
+        "diffSide",
+        "isResolved",
+        "isOutdated",
+        "viewerCanReply",
+        "viewerCanResolve",
+        "viewerCanUnresolve"
+      ]
+    },
     "GithubExportRequest": {
       "type": "object",
       "properties": {
@@ -693,7 +996,7 @@
       "properties": {
         "url": {
           "type": "string",
-          "description": "The pull request whose pending review the comments joined; the human submits the review there."
+          "description": "The pull request whose pending review the comments joined; which can be submitted from Diffle or GitHub."
         },
         "posted": {
           "type": "integer",
@@ -793,6 +1096,43 @@
       ],
       "description": "Optional enrichment for a snapshot, independent of its comparison."
     },
+    "GithubPendingCommentDelete": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "prUrl": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "prUrl"
+      ]
+    },
+    "GithubPendingCommentEdit": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "prUrl": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id",
+        "prUrl",
+        "body"
+      ]
+    },
     "GithubPullRequest": {
       "type": "object",
       "properties": {
@@ -829,6 +1169,76 @@
         "title",
         "state",
         "isDraft"
+      ]
+    },
+    "GithubReviewDecision": {
+      "type": "string",
+      "enum": [
+        "comment",
+        "approve",
+        "request-changes"
+      ]
+    },
+    "GithubReviewSubmit": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "decision": {
+          "$ref": "#/$defs/GithubReviewDecision"
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "decision",
+        "summary"
+      ]
+    },
+    "GithubThreadReply": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "prUrl": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id",
+        "prUrl",
+        "body"
+      ]
+    },
+    "GithubThreadResolution": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "prUrl": {
+          "type": "string"
+        },
+        "resolved": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "prUrl",
+        "resolved"
       ]
     },
     "GraphEdge": {
@@ -2393,6 +2803,27 @@
       ],
       "description": "What is under review, as named: a range between two revisions (either may be \"worktree\"), with\nthe slice of it on screen, or one commit against its first parent. Nothing here is resolved:\nthe snapshot carries the hashes, what the review follows and where its comments live."
     },
+    "ReviewContextLine": {
+      "type": "object",
+      "properties": {
+        "line": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "text": {
+          "type": "string"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "line",
+        "text",
+        "truncated"
+      ]
+    },
     "ReviewedCommit": {
       "type": "object",
       "properties": {
@@ -2428,6 +2859,97 @@
         "child"
       ],
       "description": "A single reviewed commit and its neighbours along HEAD's first-parent history, for stepping through it."
+    },
+    "ReviewEvidence": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "side": {
+          "$ref": "#/$defs/Side"
+        },
+        "startLine": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "endLine": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "excerpt": {
+          "type": "string"
+        },
+        "excerptTruncated": {
+          "type": "boolean"
+        },
+        "before": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ReviewContextLine"
+          }
+        },
+        "after": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ReviewContextLine"
+          }
+        }
+      },
+      "required": [
+        "path",
+        "side",
+        "startLine",
+        "endLine",
+        "excerpt",
+        "excerptTruncated",
+        "before",
+        "after"
+      ]
+    },
+    "ReviewLocation": {
+      "type": "object",
+      "properties": {
+        "updatedAt": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "commentKey": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "line": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "side": {
+          "$ref": "#/$defs/Side"
+        },
+        "full": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "updatedAt",
+        "commentKey",
+        "path",
+        "line",
+        "side",
+        "full"
+      ]
     },
     "SearchContent": {
       "type": "string",
@@ -2808,6 +3330,137 @@
           "type": "string"
         }
       }
+    },
+    "TerminalAccess": {
+      "type": "object",
+      "properties": {
+        "token": {
+          "type": "string"
+        },
+        "layout": {
+          "$ref": "#/$defs/TerminalLayout"
+        }
+      },
+      "required": [
+        "token",
+        "layout"
+      ]
+    },
+    "TerminalLayout": {
+      "type": "object",
+      "properties": {
+        "updatedAt": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "open": {
+          "type": "boolean"
+        },
+        "next": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "active": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tabs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TerminalTab"
+          }
+        }
+      },
+      "required": [
+        "updatedAt",
+        "open",
+        "next",
+        "active",
+        "tabs"
+      ]
+    },
+    "TerminalReplay": {
+      "type": "object",
+      "properties": {
+        "replayChunks": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "replayChunks"
+      ]
+    },
+    "TerminalResize": {
+      "type": "object",
+      "properties": {
+        "cols": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300
+        }
+      },
+      "required": [
+        "cols",
+        "rows"
+      ]
+    },
+    "TerminalStatus": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "exitCode": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "TerminalTab": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "panes": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "activePane": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "panes",
+        "activePane"
+      ]
     },
     "ThreadCreate": {
       "type": "object",
@@ -5119,6 +5772,38 @@
           "$ref": "#/$defs/BlameMode",
           "description": "Where git blame shows; see `BlameModeSchema`. Default inline."
         },
+        "textScale": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991,
+          "description": "Overall interface scale in percent. Default 100."
+        },
+        "editorFontSize": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Code text size in CSS pixels. Null follows the interface scale."
+        },
+        "terminalFontSize": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Terminal text size in CSS pixels. Null follows the interface scale."
+        },
         "lspCommands": {
           "type": "object",
           "propertyNames": {
@@ -5146,6 +5831,9 @@
         "followRefs",
         "lineWrap",
         "blame",
+        "textScale",
+        "editorFontSize",
+        "terminalFontSize",
         "lspCommands",
         "githubHosts"
       ]

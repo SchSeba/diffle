@@ -32,8 +32,25 @@ import { type Side } from '@/shared/side.js';
 import { hoverOnly, serversFor } from '@/shared/lsp.js';
 import { useCopied } from '@/client/clipboard.js';
 import { FilePath } from '@/client/FilePath.js';
+import { githubThreadsByPath, type GithubInlineThread } from '@/client/github/inlineThreads.js';
+import { GithubThreadCard } from '@/client/github/GithubThreadCard.js';
+import { useGithubComments } from '@/client/github/useGithubComments.js';
 import { CopyIcon } from '@/client/ui/CopyIcon.js';
 import { lineBounds, sideOf } from '@/client/comments/anchor.js';
+import {
+  githubThreadKey,
+  localThreadKey,
+  setInlineExpanded,
+  useInlineExpansion,
+} from '@/client/comments/inlineExpansion.js';
+import { withInlineThreads, type InlineThread } from '@/client/comments/inlinePresentation.js';
+import {
+  FileThreadMarker,
+  installThreadMarkers,
+  THREAD_GUTTER_CSS,
+  type LineThreadMarker,
+  type ThreadMarker,
+} from '@/client/comments/ThreadMarker.js';
 import { renderedContext } from '@/client/keyboard/nav.js';
 import { SearchBar } from '@/client/keyboard/SearchBar.js';
 import { HoverTooltip, hoverControl } from '@/client/lsp/HoverTooltip.js';
@@ -53,7 +70,6 @@ import {
   pathFromItemId,
   rangeLabel,
   viewedState,
-  visibleThreads,
   type ItemVersion,
   commentsOff,
 } from '@/client/model.js';
@@ -63,6 +79,7 @@ import { useStore, type CodeDraft, type Loaded, type ReviewState } from '@/clien
 import { gridColumns, useViews } from '@/client/views/state.js';
 import { installInlineWheel, revealInline } from './inline.js';
 import { rowOf, topRow } from './rows.js';
+import { rememberViewport } from './location.js';
 import { overflow, reviewGeometry } from './geometry.js';
 import { installOccurrenceHighlights, occurrenceControl } from '@/client/lsp/occurrences.js';
 import { focusToken, onSelectionChanged, setViewer, wordsIn } from '@/client/lsp/wordNav.js';
@@ -83,7 +100,9 @@ export type Annot =
   | { kind: 'placeholder'; placeholder: PlaceholderKind; message: string }
   | { kind: 'image'; path: string; sides: ImageSides }
   | { kind: 'thread'; thread: CommentThread }
-  | { kind: 'draft' };
+  | { kind: 'draft' }
+  | { kind: 'github'; inline: GithubInlineThread }
+  | { kind: 'threadMarker'; marker: ThreadMarker };
 
 /** Where jump navigation parks the target line, as a fraction of the viewport height. */
 const EYE_FRACTION = 0.5;
@@ -291,14 +310,14 @@ function drainHighlightLookahead(state: HighlightLookahead): void {
 
 export function ReviewPane() {
   const rem = useRemPx();
-  const geometry = useMemo(() => reviewGeometry(rem), [rem]);
+  const editorFontSize = useStore((s) => s.config.editorFontSize);
+  const geometry = useMemo(() => reviewGeometry(rem, editorFontSize), [rem, editorFontSize]);
   const snapshot = useStore((s) => s.snapshot);
   const error = useStore((s) => s.error);
   const loaded = useStore((s) => s.loaded);
   const gens = useStore((s) => s.gens);
   const fileView = useStore((s) => s.fileView);
   const threads = useStore((s) => s.threads);
-  const showResolved = useStore((s) => s.showResolved);
   const replyTo = useStore((s) => s.replyTo);
   const editingId = useStore((s) => s.editingId);
   const draft = useStore((s) => codeDraft(s.draft));
@@ -328,54 +347,74 @@ export function ReviewPane() {
   // CodeView re-renders an item only when its version changes, so each path's version is derived
   // here from what the item paints (its threads, draft, composers, collapsed state); no manual bump.
   const versions = useRef(new Map<string, ItemVersion>());
-  const items = useMemo<CodeViewItem<Annot>[]>(() => {
-    if (!snapshot) return [];
+  const inlineExpanded = useInlineExpansion((s) => s.expanded);
+  const githubThreads = useGithubComments(snapshot?.review.kind === 'range' ? snapshot.review.pr?.url : undefined).data
+    ?.threads;
+  const { items, threadMarkers } = useMemo(() => {
+    const threadMarkers = new Map<string, LineThreadMarker[]>();
+    const items: CodeViewItem<Annot>[] = [];
+    if (!snapshot) return { items, threadMarkers };
+    const githubByPath = githubThreadsByPath(snapshot, githubThreads ?? []);
     const byPath = new Map(snapshot.changed.map((f) => [f.path, f]));
     const state = { collapsed, viewed, config, snapshot };
     const threadsByPath = new Map<string, CommentThread[]>();
-    for (const t of visibleThreads({ threads, showResolved })) {
+    for (const t of threads) {
       const path = anchorPath(t.anchor);
-      if (path == null) continue;
+      if (path == null || t.stale) continue;
       const list = threadsByPath.get(path);
       if (list) list.push(t);
       else threadsByPath.set(path, [t]);
     }
-    const versionOf = (path: string, mine: CommentThread[], isCollapsed: boolean) => {
-      const v = itemVersion(
-        versions.current.get(path),
-        itemDeps({ draft, replyTo, editingId }, path, mine, isCollapsed),
-      );
+    const itemFor = (path: string, loaded: Loaded, changed: ChangedFile | undefined, folded: boolean) => {
+      const mine = threadsByPath.get(path) ?? [];
+      const github = githubByPath.get(path) ?? [];
+      const v = itemVersion(versions.current.get(path), [
+        ...itemDeps({ draft, replyTo, editingId }, path, mine, folded),
+        ...mine.map((thread) => inlineExpanded.get(localThreadKey(thread.id))),
+        ...github.flatMap(({ thread, line }) => [thread, line, inlineExpanded.get(githubThreadKey(thread.id))]),
+      ]);
       versions.current.set(path, v);
-      return v.version;
+      const inline: InlineThread[] = [
+        ...mine.map((thread) => ({ kind: 'thread' as const, thread })),
+        ...github.map((inline) => ({ kind: 'github' as const, inline })),
+      ];
+      return withInlineThreads(
+        toItem(path, loaded, changed, draft, v.version, gens[path] ?? 0, folded),
+        inline,
+        inlineExpanded,
+        threadMarkers,
+        changed?.status === 'D',
+        diffStyle,
+      );
     };
     if (fileView) {
       const { path, item } = fileView;
-      const mine = threadsByPath.get(path) ?? [];
-      const one =
-        item && toItem(path, item, undefined, mine, draft, versionOf(path, mine, false), gens[path] ?? 0, false);
-      return one ? [one] : [];
+      const one = item && itemFor(path, item, undefined, false);
+      return { items: one ? [one] : [], threadMarkers };
     }
-    const out: CodeViewItem<Annot>[] = [];
     for (const path of orderedPaths(snapshot)) {
       // A file whose patch has not arrived is a header-only placeholder, so the pane and the nav model
       // hold the same items and a jump onto it has somewhere to land.
-      const l = loaded[path] ?? LOADING;
-      const mine = threadsByPath.get(path) ?? [];
-      const folded = isCollapsed(state, path);
-      const item = toItem(
-        path,
-        l,
-        byPath.get(path),
-        mine,
-        draft,
-        versionOf(path, mine, folded),
-        gens[path] ?? 0,
-        folded,
-      );
-      if (item) out.push(item);
+      const item = itemFor(path, loaded[path] ?? LOADING, byPath.get(path), isCollapsed(state, path));
+      if (item) items.push(item);
     }
-    return out;
-  }, [snapshot, loaded, gens, fileView, threads, showResolved, replyTo, editingId, draft, collapsed, viewed, config]);
+    return { items, threadMarkers };
+  }, [
+    snapshot,
+    loaded,
+    gens,
+    fileView,
+    threads,
+    replyTo,
+    editingId,
+    draft,
+    collapsed,
+    viewed,
+    config,
+    inlineExpanded,
+    githubThreads,
+    diffStyle,
+  ]);
 
   // The scroller is state, not a ref: CodeView mounts after the empty / error branches and remounts per
   // theme, and the effects that listen to it must re-run for each element, not only when the snapshot appears.
@@ -413,6 +452,14 @@ export function ReviewPane() {
     if (!scroller) return;
     return installCommentHighlights(() => viewerRef.current as CodeViewHandle<unknown, undefined> | null, scroller);
   }, [scroller]);
+  useEffect(() => {
+    if (!scroller) return;
+    return installThreadMarkers(
+      () => viewerRef.current as CodeViewHandle<unknown, undefined> | null,
+      scroller,
+      threadMarkers,
+    );
+  }, [scroller, threadMarkers]);
   // And git blame, after the cursor's line or beside every line number.
   useEffect(() => {
     if (!scroller || blame === 'off') return;
@@ -473,21 +520,34 @@ export function ReviewPane() {
           drainHighlightLookahead(state);
         } else state.pending = null;
       }
-      if (jumping.current || useStore.getState().selection) return;
+      if (jumping.current) return;
       const box = scroller.getBoundingClientRect();
       const header = geometry.itemMetrics.diffHeaderHeight;
       const eye = box.top + box.height * EYE_FRACTION;
+      const s = useStore.getState();
+      const rememberRow = () => {
+        const anchor = topRow(
+          rendered.map((item) => ({ id: item.id, root: item.element.shadowRoot ?? item.element })),
+          eye,
+          box.bottom,
+        );
+        if (anchor) rememberViewport(s, anchor);
+      };
+      if (s.selection) {
+        rememberRow();
+        return;
+      }
       const inView = rendered
         .map((r) => ({ id: r.id, rect: r.element.getBoundingClientRect() }))
         .filter((r) => r.rect.bottom > box.top + header + 1 && r.rect.top < box.bottom && r.rect.height > 0);
       if (inView.length === 0) return;
-      const s = useStore.getState();
       const pick =
         inView.find((r) => pathFromItemId(r.id) === s.activePath) ??
         inView.filter((r) => r.rect.top <= eye).sort((a, b) => b.rect.top - a.rect.top)[0] ??
         inView[0]!;
       const path = pathFromItemId(pick.id);
       if (path !== s.activePath) s.setActivePath(path);
+      rememberRow();
     };
     // Highlight one diff beyond the rendered window without mounting more DOM. Keep one request in flight
     // and replace the pending target on scroll so speculative work cannot flood the worker queue.
@@ -544,6 +604,7 @@ export function ReviewPane() {
         s.theme !== prev.theme ||
         s.diffStyle !== prev.diffStyle ||
         s.config.lineWrap !== prev.config.lineWrap ||
+        s.config.editorFontSize !== prev.config.editorFontSize ||
         (s.config.blame !== prev.config.blame && [s.config.blame, prev.config.blame].includes('gutter'))
       )
         hold();
@@ -788,6 +849,11 @@ export function ReviewPane() {
       const viewer = viewerRef.current;
       const instance = viewer?.getInstance();
       if (!viewer || !instance || !viewer.getItem(scrollTarget.id)) return false;
+      if (pinned && !renderedRow(scrollTarget)) {
+        // On a cold view the file may still have an estimated height. Measure it before placing its line.
+        viewer.scrollTo({ type: 'item', id: scrollTarget.id, align: 'start', behavior: 'instant' });
+        instance.render(true);
+      }
       viewer.scrollTo(target);
       instance.render(true);
       if (!exact) {
@@ -862,7 +928,12 @@ export function ReviewPane() {
   const options = useMemo(
     () => ({
       ...codeViewOptions,
-      unsafeCSS: HEADER_CSS + WHITESPACE_CSS + (blame === 'gutter' ? BLAME_GUTTER_CSS : BLAME_CSS) + geometry.css,
+      unsafeCSS:
+        HEADER_CSS +
+        WHITESPACE_CSS +
+        THREAD_GUTTER_CSS +
+        (blame === 'gutter' ? BLAME_GUTTER_CSS : BLAME_CSS) +
+        geometry.css,
       layout: geometry.layout,
       itemMetrics: geometry.itemMetrics,
       hunkSeparators: 'line-info' as const,
@@ -966,12 +1037,19 @@ export function ReviewPane() {
   const renderAnnotation = useCallback((...[annotation]: CodeViewAnnotationArgs<Annot>) => {
     const meta = annotation.metadata;
     if (meta.kind === 'placeholder') return <PlaceholderBanner kind={meta.placeholder} message={meta.message} />;
+    if (meta.kind === 'github') return <GithubThreadCard inline={meta.inline} />;
+    if (meta.kind === 'threadMarker') return <FileThreadMarker marker={meta.marker} />;
     if (meta.kind === 'image') return <ImageDiff path={meta.path} sides={meta.sides} />;
     if (meta.kind === 'draft') {
       const range = draftRange(useStore.getState());
       return <CommentComposer label={range ? rangeLabel(range) : 'whole file'} />;
     }
-    return <CommentCard thread={meta.thread} />;
+    return (
+      <CommentCard
+        thread={meta.thread}
+        onCollapse={() => setInlineExpanded(localThreadKey(meta.thread.id), false, !meta.thread.resolved)}
+      />
+    );
   }, []);
 
   const resizeHeader = useCallback(
@@ -1080,31 +1158,19 @@ function toItem(
   path: string,
   loaded: Loaded,
   changed: ChangedFile | undefined,
-  mine: CommentThread[],
   draft: CodeDraft | null,
   version: number,
   gen: number,
   collapsed: boolean,
 ): CodeViewItem<Annot> | null {
   const id = itemId(changed != null, path, gen);
-  // Threads on the file as a whole, and a draft of one, sit above the first line (the viewer's line 0).
-  const fileLevel: LineAnnotation<Annot>[] = mine
-    .filter((t) => t.anchor.kind === 'file')
-    .map((t) => ({ lineNumber: FILE_LINE, metadata: { kind: 'thread', thread: t } }));
+  const fileLevel: LineAnnotation<Annot>[] = [];
   if (draft?.path === path && draft.selection == null)
     fileLevel.push({ lineNumber: FILE_LINE, metadata: { kind: 'draft' } });
   if (changed) {
     // The viewer drops file-level annotations on the side a deleted or added file does not have.
     const fileSide = changed.status === 'D' ? 'deletions' : 'additions';
     const annotations: DiffLineAnnotation<Annot>[] = fileLevel.map((a) => ({ ...a, side: fileSide }));
-    for (const t of mine) {
-      if (t.anchor.kind !== 'line') continue;
-      annotations.push({
-        side: t.anchor.side === 'old' ? 'deletions' : 'additions',
-        lineNumber: t.anchor.endLine,
-        metadata: { kind: 'thread', thread: t },
-      });
-    }
     if (draft?.path === path && draft.selection) {
       const { endLine } = lineBounds(draft.selection);
       const s = draft.selection.range.endSide ?? draft.selection.range.side ?? 'additions';
@@ -1153,16 +1219,10 @@ function toItem(
     fileLevel.unshift(standIn(path, loaded, undefined, placeholder, message));
     return { id, type: 'file', file: emptyFile(path), annotations: fileLevel, version, collapsed };
   }
-  // The file view shows the new side whole: only new-side threads have a line to sit on.
-  const annotations: LineAnnotation<Annot>[] = fileLevel;
-  for (const t of mine) {
-    if (t.anchor.kind === 'line' && t.anchor.side !== 'old')
-      annotations.push({ lineNumber: t.anchor.endLine, metadata: { kind: 'thread', thread: t } });
-  }
   if (draft?.path === path && draft.selection && sideOf(draft.selection) === 'new') {
-    annotations.push({ lineNumber: lineBounds(draft.selection).endLine, metadata: { kind: 'draft' } });
+    fileLevel.push({ lineNumber: lineBounds(draft.selection).endLine, metadata: { kind: 'draft' } });
   }
-  return { id, type: 'file', file: loaded.file, annotations, version, collapsed };
+  return { id, type: 'file', file: loaded.file, annotations: fileLevel, version, collapsed };
 }
 
 const emptyFiles = new Map<string, FileContents>();

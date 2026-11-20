@@ -1,10 +1,31 @@
 import { z } from 'zod';
-import { encode, json, q, text } from './http.js';
+import { githubCommentsChanged } from './github/commentsEvent.js';
+
+export function connectTerminal(token: string, pane: number): WebSocket {
+  const url = new URL(`api/terminal/socket?${q({ token, pane: String(pane) })}`, location.href);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  const socket = new WebSocket(url);
+  socket.binaryType = 'arraybuffer';
+  return socket;
+}
+import { encode, json, q, saveViewState, text } from './http.js';
 import {
+  TerminalAccessSchema,
+  TerminalLayoutSchema,
+  ReviewLocationSchema,
   BlameRequestSchema,
   BlameResponseSchema,
   ConfigUpdateSchema,
   GithubExportRequestSchema,
+  GithubCommentRequestSchema,
+  GithubCommentsSchema,
+  GithubPendingCommentDeleteSchema,
+  GithubPendingCommentEditSchema,
+  GithubReviewSubmitSchema,
+  GithubThreadReplySchema,
+  GithubThreadResolutionSchema,
+  type GithubReviewSubmit,
+  type GithubCommentRequest,
   LspHoverRequestSchema,
   LspPositionSchema,
   MessagePatchSchema,
@@ -70,8 +91,20 @@ import type { Side } from '@/shared/side.js';
 
 // The only module that knows URLs.
 
+function githubWrite<T>(response: z.ZodType<T>, path: string, method: string, body: string) {
+  return json(response, `api/github/${path}`, { method, body }).then(githubCommentsChanged);
+}
+
 export const api = {
-  /** The server's release; answers before the first review resolves. */
+  deleteGithubPendingComment: (id: string, prUrl: string) =>
+    githubWrite(z.undefined(), 'comments', 'DELETE', encode(GithubPendingCommentDeleteSchema, { id, prUrl })),
+  editGithubPendingComment: (id: string, prUrl: string, body: string) =>
+    githubWrite(z.undefined(), 'comments', 'PATCH', encode(GithubPendingCommentEditSchema, { id, prUrl, body })),
+  githubComments: (signal: AbortSignal) => json(GithubCommentsSchema, 'api/github/comments', { signal }),
+  replyGithubThread: (id: string, prUrl: string, body: string) =>
+    githubWrite(z.undefined(), 'thread/reply', 'POST', encode(GithubThreadReplySchema, { id, prUrl, body })),
+  resolveGithubThread: (id: string, prUrl: string, resolved: boolean) =>
+    githubWrite(z.undefined(), 'thread/resolved', 'PUT', encode(GithubThreadResolutionSchema, { id, prUrl, resolved })),
   github: () => json(GithubMetadataSchema, 'api/github'),
   /** A link to lines on origin's forge, or why there is none; local refs only, so it answers at once. */
   permalink: (req: PermalinkRequest) =>
@@ -125,7 +158,6 @@ export const api = {
       SearchResponseSchema,
       `api/search?${q({ q: query, word: opts.word ? '1' : undefined, i: opts.ignoreCase ? '1' : undefined, re: opts.regex ? '1' : undefined, scope: opts.scope, content: opts.content, path: opts.path })}`,
     ),
-  /** The shown set's threads, and its tour's checklist items each paired with its tick and answer. */
   threads: (query: ThreadQuery = {}) =>
     json(ThreadListSchema, `api/threads?${q({ state: query.state, path: query.path })}`),
   /** Open threads as the agent prompt. */
@@ -135,10 +167,11 @@ export const api = {
     text(`api/threads/${encodeURIComponent(threadId)}/messages/${encodeURIComponent(messageId)}/export`),
   /** Posts threads to the matching PR's pending review; all unresolved ones without `threadIds`. */
   exportToGithub: (req: GithubExportRequest) =>
-    json(GithubExportResponseSchema, 'api/github/export', {
-      method: 'POST',
-      body: encode(GithubExportRequestSchema, req),
-    }),
+    githubWrite(GithubExportResponseSchema, 'export', 'POST', encode(GithubExportRequestSchema, req)),
+  submitGithubReview: (req: GithubReviewSubmit) =>
+    githubWrite(z.undefined(), 'review', 'POST', encode(GithubReviewSubmitSchema, req)),
+  addGithubComment: (req: GithubCommentRequest) =>
+    githubWrite(GithubExportResponseSchema, 'comment', 'POST', encode(GithubCommentRequestSchema, req)),
   addThread: (t: ThreadCreate) =>
     json(CommentThreadSchema.array(), 'api/threads', { method: 'POST', body: encode(ThreadCreateSchema, t) }),
   addTourThread: (t: TourThreadCreate) =>
@@ -225,6 +258,13 @@ export const api = {
   /** Document symbols for a path, or workspace symbols matching a query. */
   lspSymbols: (query: SymbolsQuery) => json(LspSymbolsResponseSchema, `api/lsp/symbols?${q(query)}`),
   config: () => json(UserConfigSchema, 'api/config'),
+  terminalAccess: (signal: AbortSignal) =>
+    json(TerminalAccessSchema, 'api/terminal/access', { method: 'POST', signal }),
+  saveTerminalLayout: (token: string, layout: z.input<typeof TerminalLayoutSchema>) =>
+    saveViewState(TerminalLayoutSchema, `api/terminal/layout?${q({ token })}`, layout),
+  reviewLocation: () => json(ReviewLocationSchema.optional(), 'api/review-location'),
+  saveReviewLocation: (position: z.input<typeof ReviewLocationSchema>) =>
+    saveViewState(ReviewLocationSchema, 'api/review-location', position),
   /** lspCommands and githubHosts are CLI-only; the server ignores them. */
   saveConfig: (config: ConfigUpdate) =>
     json(UserConfigSchema, 'api/config', { method: 'PUT', body: encode(ConfigUpdateSchema, config) }),

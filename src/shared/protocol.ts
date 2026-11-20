@@ -499,6 +499,13 @@ export const ThreadCreateSchema = z
   });
 export type ThreadCreate = z.infer<typeof ThreadCreateSchema>;
 
+export const GithubCommentRequestSchema = z.object({
+  version: z.number().int(),
+  id: z.string(),
+  comment: ThreadCreateSchema,
+});
+export type GithubCommentRequest = z.infer<typeof GithubCommentRequestSchema>;
+
 export const ReplyCreateSchema = z.object({
   body: z.string().refine((body) => body.trim().length > 0, 'body required'),
   /** Absent: the reviewer replies. */
@@ -515,8 +522,18 @@ export const GithubExportRequestSchema = z.object({
 });
 export type GithubExportRequest = z.infer<typeof GithubExportRequestSchema>;
 
+export const GithubReviewDecisionSchema = z.enum(['comment', 'approve', 'request-changes']);
+export type GithubReviewDecision = z.infer<typeof GithubReviewDecisionSchema>;
+
+export const GithubReviewSubmitSchema = z.object({
+  version: z.number().int(),
+  decision: GithubReviewDecisionSchema,
+  summary: z.string(),
+});
+export type GithubReviewSubmit = z.infer<typeof GithubReviewSubmitSchema>;
+
 export const GithubExportResponseSchema = z.object({
-  /** The pull request whose pending review the comments joined; the human submits the review there. */
+  /** The pull request whose pending review the comments joined; which can be submitted from Diffle or GitHub. */
   url: z.string(),
   /** Review comments added to the pending review. */
   posted: z.number().int(),
@@ -625,6 +642,11 @@ export type FollowRefs = z.infer<typeof FollowRefsSchema>;
 export const BlameModeSchema = z.enum(['off', 'inline', 'gutter']);
 export type BlameMode = z.infer<typeof BlameModeSchema>;
 
+export const TEXT_SCALES = [80, 90, 100, 110, 125, 150] as const;
+export const FONT_SIZE_MIN = 8;
+export const FONT_SIZE_MAX = 48;
+const fontSizeUpdate = z.number().int().min(FONT_SIZE_MIN).max(FONT_SIZE_MAX).nullable().optional();
+
 export const UserConfigSchema = z.object({
   /** Globs (picomatch syntax) for files that start viewed + collapsed. Empty by default. */
   autoViewed: z.string().array(),
@@ -636,6 +658,12 @@ export const UserConfigSchema = z.object({
   lineWrap: z.boolean(),
   /** Where git blame shows; see `BlameModeSchema`. Default inline. */
   blame: BlameModeSchema,
+  /** Overall interface scale in percent. Default 100. */
+  textScale: z.number().int(),
+  /** Code text size in CSS pixels. Null follows the interface scale. */
+  editorFontSize: z.number().int().nullable(),
+  /** Terminal text size in CSS pixels. Null follows the interface scale. */
+  terminalFontSize: z.number().int().nullable(),
   /**
    * Language server command per language, replacing the built-in candidate for it; an empty
    * string disables the language. Read-only over HTTP; set in the config file, whose path `diffle config` prints.
@@ -656,6 +684,9 @@ export const DEFAULT_USER_CONFIG: UserConfig = {
   followRefs: 'auto',
   lineWrap: true,
   blame: 'inline',
+  textScale: 100,
+  editorFontSize: null,
+  terminalFontSize: null,
   lspCommands: {},
   githubHosts: {},
 };
@@ -1053,6 +1084,13 @@ export const ConfigUpdateSchema = z.object({
   followRefs: FollowRefsSchema.optional(),
   lineWrap: z.boolean().optional(),
   blame: BlameModeSchema.optional(),
+  textScale: z
+    .number()
+    .int()
+    .refine((scale) => TEXT_SCALES.some((size) => size === scale))
+    .optional(),
+  editorFontSize: fontSizeUpdate,
+  terminalFontSize: fontSizeUpdate,
 });
 export type ConfigUpdate = z.infer<typeof ConfigUpdateSchema>;
 export const ResolvedRequestSchema = z.object({
@@ -1254,3 +1292,152 @@ export const ActivitySchema = z.object({
 export type Activity = z.infer<typeof ActivitySchema>;
 
 export const ApiErrorSchema = z.object({ error: z.string() });
+
+export const MAX_TERMINALS = 12;
+export const TerminalTabSchema = z.object({
+  id: z.number().int(),
+  panes: z.number().int().array(),
+  activePane: z.number().int(),
+});
+export const TerminalLayoutSchema = z.object({
+  updatedAt: z.number().int(),
+  open: z.boolean(),
+  next: z.number().int(),
+  active: z.number().int().nullable(),
+  tabs: TerminalTabSchema.array(),
+});
+export type TerminalLayout = z.infer<typeof TerminalLayoutSchema>;
+export const TerminalAccessSchema = z.object({
+  token: z.string(),
+  layout: TerminalLayoutSchema,
+});
+export type TerminalAccess = z.infer<typeof TerminalAccessSchema>;
+
+export const ReviewLocationSchema = z.object({
+  updatedAt: z.number().int(),
+  commentKey: z.string(),
+  path: z.string(),
+  line: z.number().int().nullable(),
+  side: SideSchema,
+  full: z.boolean(),
+});
+export type ReviewLocation = z.infer<typeof ReviewLocationSchema>;
+
+export const TerminalResizeSchema = z.object({
+  cols: z.number().int().min(1).max(500),
+  rows: z.number().int().min(1).max(300),
+});
+
+export const TerminalReplaySchema = z.object({ replayChunks: z.number().int().nonnegative() });
+export const TerminalStatusSchema = z.object({
+  error: z.string().optional(),
+  exitCode: z.number().int().optional(),
+});
+
+export const ReviewContextLineSchema = z.object({
+  line: z.number().int(),
+  text: z.string(),
+  truncated: z.boolean(),
+});
+
+export const ReviewEvidenceSchema = z.object({
+  path: z.string(),
+  side: SideSchema,
+  startLine: z.number().int(),
+  endLine: z.number().int(),
+  excerpt: z.string(),
+  excerptTruncated: z.boolean(),
+  before: ReviewContextLineSchema.array(),
+  after: ReviewContextLineSchema.array(),
+});
+
+export const FeedbackItemSchema = z.object({
+  target: z.string(),
+  threadId: z.string(),
+  messageId: z.string(),
+  feedback: z.string(),
+  anchor: CommentAnchorSchema,
+  original: ReviewEvidenceSchema.optional(),
+});
+
+export const FeedbackLocationSchema = z.enum([
+  'unchanged',
+  'moved',
+  'changed',
+  'deleted',
+  'ambiguous',
+  'unlocated',
+  'unavailable',
+  'original-side',
+  'historical',
+  'file',
+  'tour',
+]);
+
+export const FeedbackContextSchema = z.object({
+  item: FeedbackItemSchema,
+  location: FeedbackLocationSchema,
+  current: ReviewEvidenceSchema.optional(),
+});
+
+export const FeedbackReplySchema = z.object({ summary: z.string() });
+
+export const GithubCommentMessageSchema = z.object({
+  id: z.string(),
+  author: z.string(),
+  body: z.string(),
+  createdAt: z.string(),
+  url: z.string().url(),
+  state: z.string().optional(),
+  canDelete: z.boolean().optional(),
+  canEdit: z.boolean(),
+  isOwnPending: z.boolean(),
+});
+
+export const GithubPendingCommentDeleteSchema = z.object({
+  id: z.string().min(1),
+  prUrl: z.string(),
+});
+export type GithubPendingCommentDelete = z.infer<typeof GithubPendingCommentDeleteSchema>;
+
+export const GithubPendingCommentEditSchema = GithubPendingCommentDeleteSchema.extend({
+  body: z.string().trim().min(1),
+});
+export type GithubPendingCommentEdit = z.infer<typeof GithubPendingCommentEditSchema>;
+
+export const GithubThreadReplySchema = GithubPendingCommentDeleteSchema.extend({
+  body: z.string().trim().min(1),
+});
+export type GithubThreadReply = z.infer<typeof GithubThreadReplySchema>;
+
+export const GithubThreadResolutionSchema = GithubPendingCommentDeleteSchema.extend({
+  resolved: z.boolean(),
+});
+export type GithubThreadResolution = z.infer<typeof GithubThreadResolutionSchema>;
+
+export const GithubCommentThreadSchema = z.object({
+  id: z.string(),
+  /** The PR head that GitHub's current line numbers refer to. */
+  pullRequest: z.object({ headRefOid: z.string() }),
+  path: z.string(),
+  line: z.number().int().nullable(),
+  startLine: z.number().int().nullable(),
+  originalLine: z.number().int().nullable(),
+  originalStartLine: z.number().int().nullable(),
+  diffSide: z.enum(['LEFT', 'RIGHT']),
+  isResolved: z.boolean(),
+  isOutdated: z.boolean(),
+  viewerCanReply: z.boolean(),
+  viewerCanResolve: z.boolean(),
+  viewerCanUnresolve: z.boolean(),
+  comments: GithubCommentMessageSchema.array().default([]),
+});
+
+export type GithubCommentThread = z.infer<typeof GithubCommentThreadSchema>;
+
+export const GithubCommentsSchema = z.object({
+  threads: GithubCommentThreadSchema.array(),
+  conversation: GithubCommentMessageSchema.array(),
+});
+export type GithubComments = z.infer<typeof GithubCommentsSchema>;
+export type GithubCommentMessage = z.infer<typeof GithubCommentMessageSchema>;
