@@ -41,6 +41,53 @@ test('shows dated GitHub comments in code and toggles the card and line icon', a
   await expect(thread.getByText('This currency needs three places.')).toBeVisible();
 });
 
+test('keeps a long inline GitHub comment inside its split diff column', async ({ page }) => {
+  const prose = `Long comment ${'wrapped words '.repeat(25)}end of paragraph`;
+  const literal = `const value = '${'long'.repeat(180)}';`;
+  await gotoFile(page, path);
+  const file = page.locator('.codeview diffs-container').filter({ has: page.locator(`[data-path="${path}"]`) });
+  const thread = file.getByRole('article', { name: 'GitHub thread in code' });
+  await clickCentred(thread.getByRole('button', { name: 'Reply', exact: true }));
+  const reply = thread.getByRole('textbox', { name: 'GitHub reply' });
+  await reply.fill([prose, '', '```text', literal, '```'].join('\n'));
+  await reply.press('Control+Enter');
+  const paragraph = thread.getByText(/^Long comment/);
+  const block = thread.locator('pre').filter({ hasText: /^const value/ });
+  await expect(paragraph).toBeVisible();
+  await expect(block).toBeVisible();
+
+  for (const overflow of ['wrap', 'scroll']) {
+    await expect(file.locator(`pre[data-diff-type="split"][data-overflow="${overflow}"]`)).toBeAttached();
+    const oldColumn = file.locator('[data-deletions] [data-content]');
+    const newColumn = file.locator('[data-additions] [data-content]');
+    await expect
+      .poll(async () => {
+        const oldSide = (await oldColumn.boundingBox())!;
+        const newSide = (await newColumn.boundingBox())!;
+        const diff = (await file.boundingBox())!;
+        const card = (await thread.boundingBox())!;
+        return (
+          oldSide.width > diff.width / 3 &&
+          newSide.width > diff.width / 3 &&
+          card.x >= newSide.x &&
+          card.x + card.width <= diff.x + diff.width
+        );
+      })
+      .toBe(true);
+    await expect.poll(() => paragraph.evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
+    expect(
+      await block.evaluate((element) => {
+        element.scrollLeft = element.scrollWidth;
+        return element.scrollLeft;
+      }),
+    ).toBeGreaterThan(0);
+    if (overflow === 'wrap') {
+      await page.keyboard.press('z');
+      await page.keyboard.press('w');
+    }
+  }
+});
+
 test('replies, changes resolution from both panels, collapses threads, and edits the pending review', async ({
   page,
   github,

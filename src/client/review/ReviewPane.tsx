@@ -182,6 +182,8 @@ const HEADER_CSS = `
 [data-line-type='change-addition'] + [data-gutter-buffer='annotation'] { --diffs-annotation-bg: var(--diffs-bg-addition); }
 [data-line-type='change-deletion'] + [data-line-annotation],
 [data-line-type='change-deletion'] + [data-gutter-buffer='annotation'] { --diffs-annotation-bg: var(--diffs-bg-deletion); }
+/* Keep an annotation's intrinsic width out of the wrapped code grid so a long block cannot squeeze the other side. */
+[data-overflow='wrap'] [data-annotation-content] { contain: inline-size; }
 /* Same for the gutter bar: the library only paints it on number cells, so a comment left a gap in it. Mirrors its 'bars' rules. */
 [data-indicators='bars'] :is([data-line-type='change-addition'], [data-line-type='change-deletion']) + [data-gutter-buffer='annotation']::after {
   content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%; user-select: none; contain: strict;
