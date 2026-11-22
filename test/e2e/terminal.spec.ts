@@ -64,6 +64,31 @@ test('retains independent shells while the bottom panel is hidden', async ({ pag
   await expect(panel.getByRole('button', { name: 'Terminal 2', exact: true })).toHaveCount(0);
 });
 
+test.describe('bracketed terminal paste', () => {
+  test.use({ args: ["--terminal=stty raw -echo; printf '\\033[?2004h<paste-ready>'; exec cat"] });
+
+  test('pastes multiline clipboard text as one bracketed input', async ({ page }) => {
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    const output = capture(page);
+    const input: Buffer[] = [];
+    page.on('websocket', (socket) => {
+      if (!new URL(socket.url()).pathname.endsWith('/api/terminal/socket')) return;
+      socket.on('framesent', ({ payload }) => {
+        if (Buffer.isBuffer(payload)) input.push(payload);
+      });
+    });
+
+    await page.reload();
+    const panel = page.getByRole('region', { name: 'Terminal panel' });
+    await expect(panel.locator('canvas')).toBeVisible();
+    await expect.poll(() => output.get('1')).toContain('<paste-ready>');
+    const pasted = 'first line\nsecond line\nthird line';
+    await page.evaluate((text) => navigator.clipboard.writeText(text), pasted);
+    await page.keyboard.press('Control+Shift+V');
+    await expect.poll(() => Buffer.concat(input).toString()).toBe(`\x1b[200~${pasted}\x1b[201~`);
+  });
+});
+
 test.describe('startup split panes', () => {
   test.use({ args: ["--terminal=printf '<startup>%s</startup>\\n' 'codex\\,ready'; exec /bin/sh,"] });
 

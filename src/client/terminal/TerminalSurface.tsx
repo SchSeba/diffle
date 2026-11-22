@@ -84,7 +84,17 @@ export function TerminalSurface({
       let exited = false;
       let replayChunks = 0;
       let replaying = false;
+      const paste = (event: ClipboardEvent) => {
+        const text = event.clipboardData?.getData('text/plain');
+        if (!text) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        // Ghostty's DOM paste handler sends raw text. Its API honors bracketed paste mode.
+        term.paste(text);
+      };
+      host.addEventListener('paste', paste, true);
       cleanup = () => {
+        host.removeEventListener('paste', paste, true);
         clearTimeout(reconnect);
         ws?.close();
         terminal.current = null;
