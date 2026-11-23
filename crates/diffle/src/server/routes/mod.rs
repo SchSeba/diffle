@@ -1,7 +1,9 @@
 //! The HTTP API: shared request parsing and error mapping, and the route groups.
 mod api;
 mod comments;
+mod feedback;
 mod files;
+mod location;
 mod lsp;
 mod tour;
 
@@ -21,7 +23,9 @@ pub fn router() -> Router<Arc<ApiDeps>> {
         .merge(api::routes())
         .merge(files::routes())
         .merge(comments::routes())
+        .merge(feedback::routes())
         .merge(lsp::routes())
+        .merge(location::routes())
         .merge(tour::routes())
 }
 

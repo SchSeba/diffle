@@ -1,12 +1,14 @@
 import { Button } from '@/client/ui/Button.js';
 import { GitCompareArrows, Keyboard, Monitor, Moon, PanelLeft, PanelRight, Settings, Sun } from 'lucide-react';
-import { useState } from 'react';
-import { repoName } from '@/client/model.js';
+import { useMemo, useState } from 'react';
+import { isViewed, repoName } from '@/client/model.js';
 import { useStore } from '@/client/store.js';
+import { TerminalToggle } from '@/client/terminal/TerminalPanel.js';
 import { nextTheme, type ThemeChoice } from '@/client/theme.js';
 import { panelOf, useActiveView } from '@/client/views/state.js';
 import { ViewSwitch } from '@/client/views/ViewSwitch.js';
 import { CommitStepper } from './CommitStepper.js';
+import { GithubReviewAction } from '@/client/github/GithubReviewAction.js';
 import { GithubMenu } from './GithubMenu.js';
 import { HistoryNav } from './HistoryNav.js';
 import { LspIndicator } from './LspStatus.js';
@@ -16,6 +18,8 @@ import { SettingsDialog } from './SettingsDialog.js';
 
 export function Header() {
   const snapshot = useStore((s) => s.snapshot);
+  const viewed = useStore((s) => s.viewed);
+  const config = useStore((s) => s.config);
   const lsp = useStore((s) => s.lsp);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const theme = useStore((s) => s.theme);
@@ -25,8 +29,23 @@ export function Header() {
   const view = useActiveView();
   const panel = panelOf(layout, view.id);
   const changed = snapshot?.changed.length ?? 0;
-  const adds = snapshot?.changed.reduce((n, f) => n + f.additions, 0) ?? 0;
-  const dels = snapshot?.changed.reduce((n, f) => n + f.deletions, 0) ?? 0;
+  const { adds, dels, viewedFiles, viewedLines } = useMemo(() => {
+    let adds = 0;
+    let dels = 0;
+    let viewedFiles = 0;
+    let viewedLines = 0;
+    for (const file of snapshot?.changed ?? []) {
+      adds += file.additions;
+      dels += file.deletions;
+      if (isViewed({ viewed, config }, file)) {
+        viewedFiles++;
+        viewedLines += file.additions + file.deletions;
+      }
+    }
+    return { adds, dels, viewedFiles, viewedLines };
+  }, [snapshot, viewed, config]);
+  const totalLines = adds + dels;
+  const progress = Math.round(100 * (totalLines > 0 ? viewedLines / totalLines : viewedFiles / (changed || 1)));
 
   return (
     <header className="col-span-full flex items-center gap-2.5 border-b border-b-border bg-surface px-3 py-0">
@@ -57,15 +76,26 @@ export function Header() {
         </span>
       )}
       <GithubMenu />
+      <GithubReviewAction />
       <MovedNotice />
-      <span className="shrink-0 whitespace-nowrap text-muted max-md:hidden">
+      <span className="min-w-0 truncate text-muted max-md:hidden">
         {changed} files · <span className="text-add">+{adds}</span> <span className="text-del">−{dels}</span>
+        {snapshot && (
+          <>
+            {' · '}
+            {viewedFiles}/{changed} viewed ·{' '}
+            <span title={totalLines > 0 ? 'Share of added and deleted lines in viewed files' : 'Share of files viewed'}>
+              {progress}%
+            </span>
+          </>
+        )}
       </span>
       <span className="flex-1" />
       {lsp.enabled && <LspIndicator lsp={lsp} />}
       {/* The switch shows in every view, so it holds its place; a view's own controls come and go beside it. */}
       {view.Controls && <view.Controls />}
       <ViewSwitch />
+      <TerminalToggle />
       <Button variant="ghost" icon onClick={() => setTheme(nextTheme(theme))} title={`Theme: ${theme} (t)`}>
         <ThemeIcon choice={theme} />
       </Button>

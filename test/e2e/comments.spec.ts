@@ -1,6 +1,12 @@
 import { expect, test } from './fixtures.js';
+import { readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { clickLine, gotoFile, selectLines, settle } from './browser.js';
 import { readPrompt, readThreads, seedReply, seedThreads } from './server.js';
+
+function stableTargets(prompt: string): string {
+  return prompt.replace(/^Target: `[^`]+`$/gm, 'Target: `[target]`').replace(/[ \t]+$/gm, '');
+}
 
 test('comments on a line range and lists the thread in the panel', async ({ page, diffle }) => {
   await gotoFile(page, 'tally/ledger.py');
@@ -58,7 +64,7 @@ test('comments on a whole file and exports both threads as a prompt', async ({ p
   const prompt = await readPrompt(diffle.url);
   expect(prompt).toContain('KWD');
   // The prompt an agent receives for this review, quoted lines included.
-  expect(prompt).toMatchSnapshot('prompt.md');
+  expect(stableTargets(prompt)).toMatchSnapshot('prompt.md');
   await expect(page).toHaveScreenshot('two-threads.png');
 });
 
@@ -82,6 +88,67 @@ test('regression: deleting a thread needs a second click and confirmation expire
   await confirm.click();
   await expect.poll(() => readThreads(diffle.url)).toEqual([]);
   await expect(page.locator('aside').last()).toContainText('No comments yet.');
+});
+
+test('resolves and reopens a thread from the comments panel', async ({ page, diffle }) => {
+  await seedThreads(diffle.url, [{ path: 'tally/ledger.py', body: 'Keep the review history.' }]);
+  const sidebar = page.locator('aside').last();
+  await sidebar.getByRole('button', { name: 'Resolve thread', exact: true }).click();
+  await expect(sidebar).toContainText('Every thread is resolved.');
+  await expect.poll(async () => (await readThreads(diffle.url))[0]?.resolved).toBe(true);
+  await sidebar.getByText('Show 1 resolved', { exact: true }).click();
+  await expect(sidebar.getByText('Keep the review history.')).toBeVisible();
+  await sidebar.getByRole('button', { name: 'Reopen thread', exact: true }).click();
+  await expect.poll(async () => (await readThreads(diffle.url))[0]?.resolved).toBe(false);
+});
+
+test('edits only the latest reviewer message in a local thread', async ({ page, diffle }) => {
+  const path = 'tally/ledger.py';
+  const [thread] = await seedThreads(diffle.url, [{ path, startLine: 4, body: 'Original reviewer comment' }]);
+  await gotoFile(page, path);
+  const code = page.locator('.codeview');
+  const edit = code.getByRole('button', { name: 'Edit (e)', exact: true });
+  await expect(edit).toHaveCount(1);
+
+  await seedReply(diffle.url, thread!.id, { body: 'Agent response', author: 'agent' });
+  await expect(code.getByText('Agent response')).toBeVisible();
+  await expect(edit).toHaveCount(0);
+
+  await seedReply(diffle.url, thread!.id, { body: 'My follow-up' });
+  await expect(code.getByText('My follow-up')).toBeVisible();
+  await expect(edit).toHaveCount(1);
+  await edit.click();
+  const editor = code.getByRole('textbox');
+  await expect(editor).toHaveValue('My follow-up');
+  await editor.fill('Updated reviewer message');
+  await editor.press('Control+Enter');
+  await expect(code.getByText('Updated reviewer message')).toBeVisible();
+  await expect(code.getByText('Agent response')).toBeVisible();
+  await expect(code.getByText('Original reviewer comment')).toBeVisible();
+});
+
+test.describe('a stale local thread', () => {
+  test.use({ revs: ['working'] });
+
+  test('stays in the sidebar when its code anchor becomes stale', async ({ page, diffle, repo }) => {
+    const path = 'tally/refunds.py';
+    const file = join(repo, path);
+    await seedThreads(diffle.url, [{ path, startLine: 18, body: 'Discuss the original refund logic.' }]);
+    await gotoFile(page, path);
+    const code = page.locator('.codeview');
+    const body = code.getByText('Discuss the original refund logic.');
+    await expect(body).toBeVisible();
+
+    const lines = (await readFile(file, 'utf8')).split('\n');
+    lines[17] = '    # The original refund logic has moved.';
+    await writeFile(file, lines.join('\n'));
+    const reloaded = await page.request.post(new URL('api/reload', diffle.url).href);
+    expect(reloaded.ok()).toBe(true);
+    await expect.poll(async () => (await readThreads(diffle.url))[0]?.stale).toBe(true);
+    await expect(body).toHaveCount(0);
+    await expect(code.locator('[data-thread-marker]')).toHaveCount(0);
+    await expect(page.locator('aside').last().getByText('Discuss the original refund logic.')).toBeVisible();
+  });
 });
 
 test('regression: closing a composer keeps its text until the comment is posted', async ({ page, diffle }) => {
@@ -159,6 +226,5 @@ test('exports agent messages with an (agent) prefix in the prompt', async ({ dif
   ]);
   await seedReply(diffle.url, opened!.id, { body: 'Agreed, in a follow-up.' });
   await seedReply(diffle.url, reviewed!.id, { body: 'Added `KD` to `_SYMBOLS`.', author: 'agent' });
-  // The prompt `yy` copies and the shutdown hands over.
-  expect(await readPrompt(diffle.url)).toMatchSnapshot('agent-prompt.md');
+  expect(stableTargets(await readPrompt(diffle.url))).toMatchSnapshot('agent-prompt.md');
 });

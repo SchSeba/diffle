@@ -1,4 +1,10 @@
 import type { CodeViewLineSelection, FileContents, FileDiffMetadata } from '@pierre/diffs';
+import {
+  githubDraftId,
+  readCommentDestination,
+  rememberCommentDestination,
+  type CommentDestination,
+} from './comments/destination.js';
 import { hydratePartialDiff, parsePatchFiles } from '@pierre/diffs';
 import type { FileTree } from '@pierre/trees';
 import { create } from 'zustand';
@@ -10,6 +16,7 @@ import {
   type GithubMetadata,
   type ChangedFile,
   type CommentThread,
+  type ConfigUpdate,
   type FileResponse,
   type LspFeature,
   type LspLocation,
@@ -30,12 +37,14 @@ import {
   type LspLogEntry,
 } from '@/shared/protocol.js';
 import { type Side } from '@/shared/side.js';
+import { rememberBrowserJump, stepBrowserJump } from './lsp/jumpHistory.js';
 import { type TourCheckItem, type TourTargetRequest } from '@/shared/tour.js';
 import { hoverOnly, joinedBy, lspBlocker } from '@/shared/lsp.js';
 import { api } from './api.js';
 import { isNotFound } from './http.js';
 import { anchorFromRange, sideOf } from './comments/anchor.js';
-import { anchorPath } from './comments/threads.js';
+import { anchorPath, editableThreadMessage } from './comments/threads.js';
+import { localThreadKey, setInlineExpanded } from './comments/inlineExpansion.js';
 import {
   buildNav,
   cursorFromSelection,
@@ -228,6 +237,7 @@ export type Match = SearchMatch &
 /** Full-screen list of a symbol's references; Enter jumps to the highlighted one. */
 export interface ReferencesState {
   open: boolean;
+  origin?: JumpPlace;
   /**
    * References of `symbol`, the lines where `symbol` uses others, or the candidate types a
    * type-definition query returned for it.
@@ -257,6 +267,7 @@ export interface JumpPosition {
   path: string;
   side: Side;
   line: number;
+  col?: number;
   /** The position sits in the file view of `path`, not in the diff list. */
   full?: boolean;
   /** That file view shows a file outside the snapshot (see FileView.external). */
@@ -315,6 +326,8 @@ export interface ReviewState {
   /** Anchor row while in visual (block) mode. */
   visualAnchor: Cursor | null;
   /** Text typed into comment editors but not yet saved, by `composerKey`; closing an editor keeps it. */
+  commentDestination: CommentDestination;
+  setCommentDestination(destination: CommentDestination): void;
   unsent: Record<string, string>;
   /** Empty text forgets the entry. */
   setUnsent(key: string, text: string): void;
@@ -411,7 +424,7 @@ export interface ReviewState {
   findReferences(target?: TokenTarget | null): Promise<void>;
   references: ReferencesState;
   /** Opens the references overlay on `list`, at `index`. */
-  showReferences(list: Pick<ReferencesState, 'kind' | 'symbol' | 'items'>, index?: number): void;
+  showReferences(list: Pick<ReferencesState, 'kind' | 'symbol' | 'items' | 'origin'>, index?: number): void;
   moveReference(delta: 1 | -1): void;
   togglePeek(): void;
   /**
@@ -564,6 +577,7 @@ export interface ReviewState {
    * deleted files. `external` opens a file the language server named outside the snapshot instead.
    */
   openFullFile(path: string, line?: number, external?: boolean): Promise<void>;
+  restorePosition(position: JumpPosition): Promise<void>;
   /** Back to the diff list, at the position the file view was entered from. */
   closeFullFile(): void;
   setSelection(sel: CodeViewLineSelection | null): void;
@@ -576,7 +590,7 @@ export interface ReviewState {
   closeDraft(): void;
   /** The text the current draft would quote; feeds the "suggest change" button. Empty for a file draft. */
   draftQuote(): Promise<string>;
-  submitDraft(body: string): Promise<void>;
+  submitDraft(body: string, destination?: CommentDestination): Promise<void>;
   submitReply(threadId: string, body: string): Promise<void>;
   editMessage(threadId: string, messageId: string, body: string): Promise<void>;
   deleteMessage(threadId: string, messageId: string): Promise<void>;
@@ -584,7 +598,7 @@ export interface ReviewState {
   deleteThread(id: string): Promise<void>;
   clearThreads(): Promise<void>;
   deleteStaleThreads(): Promise<void>;
-  /** Adds threads to the active PR's pending review; the human submits it on GitHub. A toast appears only when threads are skipped or the post fails. */
+  /** Adds threads to the active PR's pending review. A toast appears only when threads are skipped or the post fails. */
   /** Post open threads (or the given ones) to the PR; resolves to what happened, or null when the post failed. */
   exportToGithub(threadIds?: string[]): Promise<ExportOutcome | null>;
   /** Mark a file viewed (collapsing it) or not viewed (expanding it). The cursor and viewport stay put. */
@@ -595,9 +609,7 @@ export interface ReviewState {
   toggleCollapsed(path: string): void;
   /** A click on a file's header: the cursor moves onto that file, the viewport stays where it is. */
   selectFile(path: string): void;
-  saveConfig(
-    config: Partial<Pick<UserConfig, 'autoViewed' | 'contextLines' | 'followRefs' | 'lineWrap' | 'blame'>>,
-  ): Promise<void>;
+  saveConfig(config: ConfigUpdate): Promise<boolean>;
   jumpTo(path: string, line?: number, side?: Side): void;
   setActivePath(path: string | null): void;
 }
@@ -1198,9 +1210,8 @@ export const useStore = create<ReviewState>((set, get) => {
   const currentPlace = (): JumpPlace | null => outside?.here() ?? currentPosition();
 
   /** Remember where we are before a jump (vim jumplist semantics). */
-  const recordJump = () => {
+  const recordJump = (pos = currentPlace()) => {
     if (silent) return;
-    const pos = currentPlace();
     if (!pos) return;
     const { jumps, jumpIndex } = get();
     const kept = jumps.slice(0, jumpIndex);
@@ -1215,6 +1226,52 @@ export const useStore = create<ReviewState>((set, get) => {
     if (isView(place)) return place.restore();
     outside?.leave();
     void goToPositionSilently(place);
+  };
+
+  let browserJumps: JumpPlace[] | undefined;
+
+  const positionOf = (target: { path: string; side: Side; line: number; col?: number }): JumpPosition => {
+    const view = get().fileView;
+    return view?.path === target.path ? { ...target, full: true, external: view.external } : target;
+  };
+
+  /** A mouse jump comes from the token that was clicked, even if the line cursor was elsewhere. */
+  const tokenOrigin = ({ path, side, line, col }: TokenTarget): JumpPlace =>
+    outside?.here() ?? positionOf({ path, side, line, col });
+
+  const jumpFromSymbol = async (
+    path: string,
+    line: number,
+    external: boolean | undefined,
+    col?: number,
+    from?: JumpPlace,
+  ) => {
+    const g = generation;
+    const scope = get().snapshot?.commentKey;
+    const origin = from ?? currentPlace();
+    await jumpToLine(path, line, external, col, origin);
+    if (!current(g) || get().activePath !== path) return;
+    outside?.leave();
+    const destination = positionOf({ path, side: 'new', line, col });
+    if (!origin || !scope || samePlace(origin, destination)) return;
+    const { jumps } = get();
+    if (jumps.at(-1) !== origin) return;
+    const list = [...jumps, destination];
+    const restore = (place: JumpPlace, jumpIndex: number) => {
+      if (get().snapshot?.commentKey !== scope) return;
+      get().closeSymbolMenu();
+      if (get().references.open) get().closeReferences();
+      set({ jumps: list, jumpIndex });
+      browserJumps = list;
+      goToPlace(place);
+    };
+    if (
+      rememberBrowserJump(
+        () => restore(origin, list.length - 2),
+        () => restore(destination, list.length - 1),
+      )
+    )
+      browserJumps = jumps;
   };
 
   /** Expand a collapsed file so a jump into it has something to land on. */
@@ -1268,7 +1325,7 @@ export const useStore = create<ReviewState>((set, get) => {
     const side = pos.side === 'old' ? 'deletions' : 'additions';
     const rowIndex = item.rows.findIndex((r) => r.line === pos.line && r.side === side);
     if (rowIndex !== -1) {
-      placeCursor({ itemIndex, rowIndex }, false, 'eye');
+      placeCursor({ itemIndex, rowIndex }, false, 'eye', pos.col);
       return;
     }
     set((s) => ({
@@ -1278,6 +1335,7 @@ export const useStore = create<ReviewState>((set, get) => {
         id: item.id,
         line: pos.line,
         side: pos.side,
+        col: pos.col,
         align: 'eye',
         nonce: (s.scrollTarget?.nonce ?? 0) + 1,
       },
@@ -1353,10 +1411,10 @@ export const useStore = create<ReviewState>((set, get) => {
    * Open `path` and put the cursor on its new-side `line` at eye level, expanding collapsed context if needed.
    * A `col` from a language server scrolls sideways to it.
    */
-  const jumpToLine = async (path: string, line: number, external = false, col?: number) => {
+  const jumpToLine = async (path: string, line: number, external = false, col?: number, origin?: JumpPlace | null) => {
     // One jumplist entry per jump, taken at the origin. Opening the file parks the cursor on its
     // first hunk on the way; recording that would make Ctrl+o land somewhere the reader never was.
-    recordJump();
+    recordJump(origin);
     await quietly(() => (external ? get().openFullFile(path, undefined, true) : get().openFile(path)));
     ensureExpanded(path);
     const items = nav();
@@ -1438,6 +1496,7 @@ export const useStore = create<ReviewState>((set, get) => {
     get().closeSymbolMenu();
     const pos = lspPosition(target, kind === 'definition' ? 'definition' : 'typeDefinition');
     if (!pos) return;
+    const origin = tokenOrigin(target!);
     // The answer names lines of the snapshot the question was asked about.
     const g = generation;
     try {
@@ -1452,11 +1511,9 @@ export const useStore = create<ReviewState>((set, get) => {
       // A function's "type" comes back as every class in its signature (pyrefly lists parameter
       // types before the return type). Picking the first would jump somewhere unasked; let the reader choose.
       if (kind === 'type definition' && res.locations.length > 1) {
-        return get().showReferences({ kind: 'types', symbol: target!.text, items: res.locations });
+        return get().showReferences({ kind: 'types', symbol: target!.text, items: res.locations, origin });
       }
-      await jumpToLine(loc.path, loc.line, loc.external, loc.col);
-      // A view over the diff, a tour's symbol menu, gives way once the jump list has recorded it.
-      outside?.leave();
+      await jumpFromSymbol(loc.path, loc.line, loc.external, loc.col, origin);
     } catch (e) {
       if (current(g)) report(kind === 'definition' ? 'Go to definition' : 'Go to type definition', e);
     }
@@ -1569,6 +1626,11 @@ export const useStore = create<ReviewState>((set, get) => {
       set({ theme });
     },
     visualAnchor: null,
+    commentDestination: readCommentDestination(),
+    setCommentDestination(commentDestination) {
+      rememberCommentDestination(commentDestination);
+      set({ commentDestination });
+    },
     unsent: readUnsent(),
     setUnsent(key, text) {
       const { [key]: _, ...rest } = get().unsent;
@@ -2015,6 +2077,7 @@ export const useStore = create<ReviewState>((set, get) => {
       get().closeSymbolMenu();
       const pos = lspPosition(target, 'references');
       if (!pos) return;
+      const from = tokenOrigin(target!);
       const g = generation;
       try {
         const res = await api.lspReferences(pos);
@@ -2024,14 +2087,14 @@ export const useStore = create<ReviewState>((set, get) => {
         // Start on the reference after the origin, so Enter moves forward through the list.
         const origin = items.findIndex((m) => m.path === pos.path && m.line === pos.line);
         const index = origin === -1 ? 0 : (origin + 1) % items.length;
-        get().showReferences({ kind: 'references', symbol: target!.text, items }, index);
+        get().showReferences({ kind: 'references', symbol: target!.text, items, origin: from }, index);
       } catch (e) {
         if (current(g)) report('Find references', e);
       }
     },
     references: { open: false, kind: 'references', symbol: '', items: [], index: -1, peek: false },
     showReferences(list, index = 0) {
-      set((s) => ({ references: { ...s.references, ...list, open: true, index } }));
+      set((s) => ({ references: { ...s.references, ...list, origin: list.origin, open: true, index } }));
     },
     moveReference(delta) {
       const r = get().references;
@@ -2065,8 +2128,12 @@ export const useStore = create<ReviewState>((set, get) => {
       }
       // A picked line other than the reference's own has no column to aim at. A view over the diff,
       // the graph listing a symbol's links, gives way once the jump list has recorded it.
-      void jumpToLine(m.path, line ?? m.line, m.external, line == null || line === m.line ? m.col : undefined).then(
-        () => outside?.leave(),
+      void jumpFromSymbol(
+        m.path,
+        line ?? m.line,
+        m.external,
+        line == null || line === m.line ? m.col : undefined,
+        r.origin,
       );
     },
     closeReferences() {
@@ -2163,6 +2230,7 @@ export const useStore = create<ReviewState>((set, get) => {
     jumps: [],
     jumpIndex: 0,
     jumpBack() {
+      if (browserJumps === get().jumps && stepBrowserJump(-1)) return;
       if (!canJumpBack(get())) return;
       // From the file view, Ctrl+o always means back to the diff, where it was left.
       if (get().fileView) return get().closeFullFile();
@@ -2180,6 +2248,7 @@ export const useStore = create<ReviewState>((set, get) => {
       if (target) goToPlace(target);
     },
     jumpForward() {
+      if (browserJumps === get().jumps && stepBrowserJump(1)) return;
       if (!canJumpForward(get())) return;
       const { jumps, jumpIndex } = get();
       const index = jumpIndex + 1;
@@ -2259,8 +2328,11 @@ export const useStore = create<ReviewState>((set, get) => {
     },
     editCommentAtCursor() {
       const t = threadAtCursor();
-      const last = t?.messages[t.messages.length - 1];
-      if (last) get().setEditingId(last.id);
+      if (!t || t.stale) return;
+      const last = editableThreadMessage(t);
+      if (!last) return;
+      setInlineExpanded(localThreadKey(t.id), true, !t.resolved);
+      get().setEditingId(last.id);
     },
     async deleteCommentAtCursor() {
       const t = threadAtCursor();
@@ -2532,7 +2604,8 @@ export const useStore = create<ReviewState>((set, get) => {
     },
 
     reloadIfMoved() {
-      if (get().moved) void get().reload();
+      const review = get().snapshot?.review;
+      if (get().moved || (review?.kind === 'range' && review.pr && review.view.kind === 'whole')) void get().reload();
       else get().flash('Nothing moved since this snapshot');
     },
 
@@ -2551,6 +2624,7 @@ export const useStore = create<ReviewState>((set, get) => {
     },
 
     loadFile,
+    restorePosition: goToPositionSilently,
 
     async openFile(path, line, side) {
       const snap = get().snapshot;
@@ -2681,7 +2755,7 @@ export const useStore = create<ReviewState>((set, get) => {
     },
 
     // The composer stays open with its text when a post fails; the toast says why.
-    async submitDraft(body) {
+    async submitDraft(body, destination = 'local') {
       const d = get().draft;
       if (!d || !body.trim()) return;
       const key = composerKey(get(), { kind: 'draft' });
@@ -2696,26 +2770,37 @@ export const useStore = create<ReviewState>((set, get) => {
         await get().refreshThreads();
         return;
       }
-      if (!d.selection) {
-        try {
-          await api.addThread({ path: d.path, body });
-        } catch (e) {
-          return report('Posting the comment', e);
+      const snap = get().snapshot;
+      try {
+        const range = d.selection && selectionRange(get(), d.path, d.selection);
+        const comment = range
+          ? anchorFromRange(d.path, range, await ensureContents(d.path, range.side))
+          : { path: d.path };
+        if (get().draft !== d) return;
+        if (destination === 'github') {
+          if (!snap || snap.review.kind !== 'range' || !snap.review.pr || get().snapshot?.version !== snap.version) {
+            get().flash('The comparison changed. Review the comment location and try again.');
+            return;
+          }
+          await api.addGithubComment({ version: snap.version, id: githubDraftId(d), comment: { ...comment, body } });
+          if (key) get().setUnsent(key, '');
+          if (get().draft === d) {
+            set({ draft: null });
+            get().flash('Added to your pending GitHub review');
+          }
+          return;
         }
-        if (key) get().setUnsent(key, '');
+        await api.addThread({ ...comment, body });
+      } catch (e) {
+        return report(destination === 'github' ? 'Adding to the GitHub review' : 'Posting the comment', e);
+      }
+      if (key) get().setUnsent(key, '');
+      if (get().draft !== d) return;
+      if (!d.selection) {
         set({ draft: null });
         await get().refreshThreads();
         return;
       }
-      try {
-        const range = selectionRange(get(), d.path, d.selection);
-        const contents = await ensureContents(d.path, range.side);
-        const { path, side, startLine, endLine, quoted } = anchorFromRange(d.path, range, contents);
-        await api.addThread({ path, side, startLine, endLine, quoted, body });
-      } catch (e) {
-        return report('Posting the comment', e);
-      }
-      if (key) get().setUnsent(key, '');
       // Keep the cursor on the commented line so `e` / `dd` apply to it.
       const s = d.selection.range;
       set({
@@ -2818,15 +2903,19 @@ export const useStore = create<ReviewState>((set, get) => {
       // Shown at once: the server answers once the file is synced to disk, which a busy disk holds up for seconds.
       // Saves run in order, and only the newest config request (save or load) may commit.
       const t = configSeq.start();
-      set((s) => ({ config: { ...s.config, ...config } }));
+      const patch: ConfigUpdate = Object.fromEntries(Object.entries(config).filter(([, value]) => value !== undefined));
+      set((s) => ({ config: { ...s.config, ...patch } }));
       try {
-        const saved = await configWrites(() => api.saveConfig(config));
+        const saved = await configWrites(() => api.saveConfig(patch));
         if (configSeq.latest(t)) set({ config: saved });
+        return true;
       } catch (e) {
-        if (!configSeq.latest(t)) return;
-        report('Saving settings', e);
-        // Undo what was shown but never saved.
-        void get().refreshConfig();
+        if (configSeq.latest(t)) {
+          report('Saving settings', e);
+          // Undo what was shown but never saved.
+          void get().refreshConfig();
+        }
+        return false;
       }
     },
 

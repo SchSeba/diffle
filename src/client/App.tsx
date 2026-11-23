@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { connectWs } from './api.js';
+import { resetInlineExpansion } from './comments/inlineExpansion.js';
+import { githubCommentsChanged } from './github/commentsEvent.js';
+import { useSyncGithubComments } from './github/useGithubComments.js';
 import { Header } from './header/Header.js';
 import { HelpOverlay } from './keyboard/HelpOverlay.js';
 import { useKeymap } from './keyboard/useKeymap.js';
@@ -8,6 +11,8 @@ import { documentTitle } from './model.js';
 import { useRemPx } from './scale.js';
 import { ServerLost } from './ServerLost.js';
 import { useStore } from './store.js';
+import { TerminalPanel } from './terminal/TerminalPanel.js';
+import { restoreReviewLocation } from './review/location.js';
 import { FileTreePane } from './tree/FileTreePane.js';
 import { refreshTour } from './tour/state.js';
 import { TooltipHost } from './ui/TitleTooltips.js';
@@ -15,6 +20,7 @@ import './views/registry.js';
 import { gridColumns, listViews, panelOf, useViews } from './views/state.js';
 
 export function App() {
+  useSyncGithubComments();
   const boot = useStore((s) => s.boot);
   const refreshSnapshot = useStore((s) => s.refreshSnapshot);
   const refreshThreads = useStore((s) => s.refreshThreads);
@@ -69,15 +75,23 @@ export function App() {
   const columns = gridColumns(layout, active);
 
   useEffect(() => {
+    const loadReview = async () => {
+      await boot();
+      await restoreReviewLocation(useStore.getState);
+    };
     // Boot without waiting for the socket: Firefox holds a new socket back while another one to the
     // same host hangs connecting, such as another tab's reconnect to a frozen server, for up to 20 s.
-    void boot().then(() => performance.mark('diffle:snapshot'));
+    void loadReview().then(() => performance.mark('diffle:snapshot'));
     // Every connection, the first included, resyncs the whole state: pushes sent before it
     // subscribed are not replayed.
     let connected = false;
     const resync = () => {
       setLost(false);
-      void boot();
+      const reconnecting = connected;
+      if (reconnecting) resetInlineExpansion();
+      void loadReview().then(() => {
+        if (reconnecting) githubCommentsChanged(undefined);
+      });
       // A push missed while disconnected still shows; the first connection loads without it.
       void refreshTour({ reveal: connected });
       connected = true;
@@ -121,7 +135,7 @@ export function App() {
   }, [boot, refreshSnapshot, refreshThreads, refreshViewed, refreshConfig, setLspStatus, setMoved]);
 
   return (
-    <div className="grid h-full grid-rows-[2.5rem_1fr]" style={{ gridTemplateColumns: columns }}>
+    <div className="grid h-full grid-rows-[2.5rem_minmax(0,1fr)_auto]" style={{ gridTemplateColumns: columns }}>
       <Header />
       {layout.treeVisible && (
         <>
@@ -145,6 +159,7 @@ export function App() {
           <ViewLayers part="Side" />
         </>
       )}
+      <TerminalPanel />
       {/* Above every view: the diff and the tour's symbol chips both open it. */}
       <SymbolMenu />
       <HelpOverlay />
