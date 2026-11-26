@@ -29,10 +29,18 @@ pub fn format_followup(
         return prompt;
     }
     if live {
-        prompt.push_str("\n## Pending feedback in Diffle\n\nRun `diffle comments context <target>` immediately before addressing each item. Verify the fix and send a short summary with `diffle comments reply <target> <summary>`. Leave blocked items pending.\n");
+        prompt.push_str("\n## Pending feedback in Diffle\n\nRun `diffle comments context <target>` immediately before addressing each item. ");
     } else {
-        prompt.push_str("\n## Saved feedback context\n\nThese excerpts are historical. Verify the current location before editing.\n");
+        prompt.push_str("\n## Saved feedback context\n\nThese excerpts are historical. Verify the current location before editing. ");
     }
+    prompt.push_str(
+        "Read the thread and applicable repository instructions, including `AGENTS.md`. Investigate questions against the current code. \
+         For requested changes, plan the fix and its verification, implement it, then run the relevant tests and required repository checks.",
+    );
+    if live {
+        prompt.push_str(" Check each target against the final diff. Reply with the finding or fix and the observed check result using `diffle comments reply <target> <summary>`. Leave blocked items pending.");
+    }
+    prompt.push('\n');
     for item in items {
         let _ = writeln!(prompt, "\n{}", item.feedback.trim());
         if live {

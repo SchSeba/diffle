@@ -296,8 +296,9 @@ diffle tour clear               # remove it
 diffle tour export tour.html    # save it as one HTML file that opens offline; - for stdout
 ```
 
-Ask your agent to handle the pending Diffle comments. It refreshes the context before each fix
-and posts one reply per verified change. Replies appear in the same threads. Use the checkmark to
+Ask your agent to handle the pending Diffle comments. It follows the reviewed repository's instructions,
+investigates each thread, and runs the relevant tests and required checks for changes. Each reply
+includes the finding or fix and its verification. Blocked items stay pending. Use the checkmark to
 resolve a thread and **Show resolved** to see or reopen it. Working comments persist for each branch
 in its checkout, or for each commit when HEAD is detached.
 

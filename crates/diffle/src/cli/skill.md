@@ -29,22 +29,41 @@ dashes and no emoji.
 Run these commands in the repository the user is reviewing. When asked to handle pending feedback,
 cover every message in scope in the same run, even when the batch mixes requests and questions.
 
-1. Run `diffle comments pending` to get unanswered reviewer messages and each message's `target`.
-2. Act on each message's intent.
-   - For a requested change, run `diffle comments context <target>` immediately before editing,
-     including after another fix in the same file. `item.original` is evidence from the review.
-     `current` comes with a location status. A changed range is an area to inspect. Ambiguous and
-     unlocated results need independent verification before editing. Old-side and committed
-     locations are historical. Make and verify the change, then reply with what you changed.
-   - For a question or a request for an opinion, inspect the relevant code or tour and reply with
-     the answer without editing. If the message also asks for a change, make the change and answer
-     the question in the same reply.
-3. Post each reply with `diffle comments reply <target> <summary|->`. Use `-` to read short Markdown
-   from stdin. The reply appears in the same thread and marks that message answered. Leave blocked
-   items pending and finish the other items without waiting for a decision.
-4. In your final chat response, include every in-scope reviewer message and the exact reply you
-   posted for it in Diffle. For each blocked message, include the message and explain what is needed
-   to handle it. Check that every in-scope target appears in the recap.
+1. Run `diffle comments pending` and keep each in-scope message's `target`. Read the whole thread
+   with `diffle comments list --state all`, including related earlier decisions and reverts. Read the
+   reviewed repository's applicable instructions, including root and directory-specific `AGENTS.md`
+   files. Discover the project's validation commands from its contributor guide, validation notes
+   or build tasks. Use its prescribed entry points.
+2. Run `diffle comments context <target>` for each item. Compare `item.original` with the current
+   diff and working tree. Inspect changed ranges and independently locate ambiguous or unlocated
+   anchors. Old-side and committed locations are historical. Refresh context immediately before
+   editing, including after another fix in the same file.
+3. Investigate the reviewer's premise. For a behavior or design concern, trace the relevant callers,
+   data and tests. Check claims about a dependency against the pinned version. For example, a reuse
+   key must identify the same object on retry and distinguish objects across its intended scope.
+   State the expected behavior and identify a case that would disprove the proposed fix. When the
+   reviewer asks for a better design, compare viable options against that case. For a question,
+   answer from the evidence. If it also requests a change, implement it and answer both parts.
+4. For requested edits, plan the change and how to demonstrate it before implementing it. Group
+   related targets when they affect the same behavior. Implement the agreed outcome and inspect the
+   resulting diff against the latest feedback. If the current code already satisfies the request or
+   the suggestion would break a caller, explain the specific evidence in the thread. If intent
+   remains unclear after investigation, leave that target pending and identify the decision needed.
+5. For behavior changes, run the relevant unit or integration tests. Add or adjust a regression case
+   when existing coverage misses the reported behavior. For wording or tour edits, inspect the
+   resulting text or pushed tour. Record the observed behavior for each target. Run the repository's
+   required checks on the final changes. Related targets can share a check. Fix failures caused by the
+   changes and rerun the affected checks.
+6. Before posting, check each target against the final diff at the affected file and hunk or symbol.
+   Later edits can supersede or revert an earlier fix. Recheck affected tests and describe the
+   outcome that actually survived. Use `diffle comments reply <target> <summary|->` to state what
+   changed or what you found and where the reviewer can verify it. For tested changes, name the
+   command or test and its actual result. Use `-` for short Markdown on stdin. Posting marks the message answered.
+   If a required check fails or cannot run, leave affected targets pending, record the command and
+   failure or missing prerequisite for the recap, and continue with independent items.
+7. In your final chat response, include every in-scope reviewer message and the exact reply posted
+   for it in Diffle. For each blocked message, explain what remains and why. Check every target
+   against the recap.
 
 `diffle comments list [--state open|resolved|all] [--path <path>]` shows the threads and tour checks
 for inspection. Replies carry `"author": "agent"`. An anchor is one of:
