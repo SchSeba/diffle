@@ -10,6 +10,29 @@ serving the current repository, or the one `-C <path>` names; a run announces it
 `<git-dir>/diffle/server.json`. If none runs, they exit 2 with "no diffle is running for this
 repository": ask the reviewer to run `diffle` in the repository.
 
+## First review in this chat
+
+Before writing a tour or handling the first comment, establish what is under review. Keep this
+understanding in the current conversation so later feedback can build on it.
+
+1. Run `diffle review-context`. Its header identifies the repository, full comparison and shown
+   view. Read the entire patch, including files with no comments. If a commit or interdiff is in
+   focus, read both labeled patches and keep their roles clear. For large output, redirect it to a
+   temporary file outside the checkout and read it in sections through the last hunk.
+2. Read the repository README, root and applicable directory `AGENTS.md`, and the docs they point
+   to for the affected components. For a review of another revision, inspect its sources at the
+   printed endpoints. Follow the change from its entry point through its callers, data and tests.
+   Compare the previous and proposed behavior. Look for the rationale in the commit messages,
+   related design notes and the reviewer's request. Distinguish evidence from inferred intent.
+3. Before publishing a tour or editing for a comment, write a short explanation in chat: what this
+   project does, the problem the change addresses, why this approach was chosen if known, how one
+   concrete case flows through the changed code, and what covers or leaves that case open. Name the
+   relevant files or symbols. Ask specific questions about gaps that could change the explanation
+   or fix. Wait for the answer before relying on that assumption. Continue independent work.
+4. Use the reviewer's answers to correct this account. Reuse it for comments on the same review.
+   Refresh the relevant patch and update the account when the worktree, endpoints, focus or intent
+   change. Start again when the chat moves to a different review.
+
 ## Writing
 
 The reviewer reads your replies and tours inside diffle, so hold them to its bar as a product, in
@@ -30,10 +53,8 @@ Run these commands in the repository the user is reviewing. When asked to handle
 cover every message in scope in the same run, even when the batch mixes requests and questions.
 
 1. Run `diffle comments pending` and keep each in-scope message's `target`. Read the whole thread
-   with `diffle comments list --state all`, including related earlier decisions and reverts. Read the
-   reviewed repository's applicable instructions, including root and directory-specific `AGENTS.md`
-   files. Discover the project's validation commands from its contributor guide, validation notes
-   or build tasks. Use its prescribed entry points.
+   with `diffle comments list --state all`, including related earlier decisions and reverts. Discover
+   the project's validation commands from its contributor guide, validation notes or build tasks. Use its prescribed entry points.
 2. Run `diffle comments context <target>` for each item. Compare `item.original` with the current
    diff and working tree. Inspect changed ranges and independently locate ambiguous or unlocated
    anchors. Old-side and committed locations are historical. Refresh context immediately before
@@ -83,7 +104,8 @@ for inspection. Replies carry `"author": "agent"`. An anchor is one of:
 A tour is one HTML document that walks the reviewer through the change as an article: an optional
 `<h1>` title, then sections. Each `<h2>` starts a section, one step of the walk: the reviewer moves
 between steps with `n` and `p`, and the side panel lists them with their `<h3>` subsections. Each
-review has one tour.
+review has one tour. Use the first section to show the problem, rationale and behavior flow you
+established in chat. Carry confirmed decisions into the walkthrough and label any open question.
 
 - `diffle tour push [<file>|-]` (stdin without a file) checks the document, makes it the review's
   tour, opens it in the reviewer's diffle, and prints the stored tour as JSON. A refused push exits 2, lists every reason as

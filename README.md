@@ -287,6 +287,7 @@ diffle working --keep-alive --terminal="codex,"          # one tab with two pane
 A coding agent in the same repository talks to the diffle running there:
 
 ```bash
+diffle review-context              # whole review patch, plus the focused slice when different
 diffle comments pending            # unanswered reviewer feedback and reply targets
 diffle comments context <target>   # locate a comment before making a change
 diffle comments reply <target> -   # post one verified summary; - reads stdin
@@ -295,6 +296,10 @@ diffle tour push tour.html      # show a guided tour of the change; stdin withou
 diffle tour clear               # remove it
 diffle tour export tour.html    # save it as one HTML file that opens offline; - for stdout
 ```
+
+On the first tour or comment request in a chat, the skill reads the full review, README, and
+applicable repository instructions. The agent explains the change's purpose and flow in chat
+and asks about decisions the code leaves open. Later comments build on that understanding.
 
 Ask your agent to handle the pending Diffle comments. It follows the reviewed repository's instructions,
 investigates each thread, and runs the relevant tests and required checks for changes. Each reply

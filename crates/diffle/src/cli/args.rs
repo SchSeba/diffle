@@ -180,6 +180,11 @@ pub enum Command {
         #[command(flatten)]
         opts: GlobalOpts,
     },
+    /// print the complete active review patch and any focused view for an agent
+    ReviewContext {
+        #[command(flatten)]
+        repo: RepoOpts,
+    },
     /// read and answer the comments of the review running for this repository, as an agent
     Comments {
         #[command(subcommand)]

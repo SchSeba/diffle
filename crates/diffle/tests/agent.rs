@@ -126,6 +126,28 @@ fn keeps_the_announcement_of_a_run_that_does_not_answer() {
 }
 
 #[test]
+fn review_context_reads_the_whole_range_without_changing_focus() {
+    let t = repo();
+    t.commit("change both modules");
+    let commit = t.git(&["rev-parse", "HEAD"]);
+    t.write("untracked.txt", "included only in the full feature\n");
+    let served = Served::start(&t.path, &["--port", "0", "--no-checkout", "HEAD~1..worktree"]);
+    let (status, _) = http(&served.url, "PUT", "/api/view", &json!({"kind":"commit", "sha":commit}).to_string());
+    assert!(status.contains("200"), "{status}");
+    let before = served.get("/api/snapshot");
+    let result = run(served._config.path(), &["review-context", "-C", t.path.to_str().unwrap()]);
+    assert!(result.status.success(), "{}", stderr(&result));
+    let output = stdout(&result);
+    let (whole, shown) = output.split_once("Shown view patch:\n").unwrap();
+    assert!(whole.contains("+included only in the full feature"));
+    for patch in [whole, shown] {
+        assert!(patch.contains("+y = 2") && patch.contains("+z = 2"), "{patch}");
+    }
+    assert!(!shown.contains("untracked.txt"));
+    assert_eq!(served.get("/api/snapshot"), before);
+}
+
+#[test]
 fn lists_the_shown_threads_by_state_and_path() {
     let t = repo();
     let served = Served::start(&t.path, &["--port", "0"]);

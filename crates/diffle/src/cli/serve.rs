@@ -245,9 +245,15 @@ async fn shutdown(session: &Arc<Session>, server: &Mutex<Served>, repo: &GitRepo
             use std::io::Write as _;
             let mut out = std::io::stdout();
             let pending = session.pending_feedback().await.unwrap_or_default();
-            let _ = out
-                .write_all(format_followup(&threads, &checks, &pending, false).as_bytes())
-                .and_then(|()| out.flush());
+            let mut prompt = format_followup(&threads, &checks, &pending, false);
+            if !pending.is_empty()
+                && let Ok(snapshotter) = session.snapshotter()
+                && let Ok(snapshot) = snapshotter.current().await
+            {
+                prompt.push('\n');
+                prompt.push_str(&crate::protocol::review_scope(&snapshot));
+            }
+            let _ = out.write_all(prompt.as_bytes()).and_then(|()| out.flush());
         }
     }
     dispose(session, server, repo, lsp).await;

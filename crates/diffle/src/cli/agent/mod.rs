@@ -1,6 +1,5 @@
-//! `diffle comments` and `diffle tour`: an agent's client of the diffle serving its repository.
-//! Every subcommand that answers prints one JSON document on stdout, but an export to `-`, which
-//! prints the file.
+//! An agent's client of the diffle serving its repository. Review context and tour exports are
+//! plain text; commands returning structured records print JSON.
 mod comments;
 mod server;
 mod tour;
@@ -14,6 +13,17 @@ use super::args::{CommentsCommand, RepoOpts, TourCommand};
 use crate::error::Error;
 use crate::git::GitRepo;
 use server::{Diffle, reach};
+
+/// Prints the whole review and focused patch from the same snapshot, without changing the viewer.
+pub async fn review_context(repo: RepoOpts, dir: Option<PathBuf>) -> anyhow::Result<()> {
+    let diffle = connect(repo, dir).await?;
+    let response = diffle.send(reqwest::Method::GET, "api/review-context", None::<&()>).await?;
+    let mut response = Diffle::success(response).await?;
+    while let Some(chunk) = response.chunk().await? {
+        std::io::stdout().lock().write_all(&chunk)?;
+    }
+    Ok(())
+}
 
 /// Runs `command`; `dir` is a `-C` given before `comments`, which one after it overrides.
 pub async fn comments(command: CommentsCommand, dir: Option<PathBuf>) -> anyhow::Result<()> {

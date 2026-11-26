@@ -29,6 +29,7 @@ const SEARCH_LIMIT: usize = 500;
 
 pub fn routes() -> Router<Arc<ApiDeps>> {
     Router::new()
+        .route("/api/review-context", get(review_context))
         .route("/api/patch", get(patch).post(patch_many))
         .route("/api/file", get(file))
         .route("/api/highlight", get(highlight))
@@ -39,6 +40,24 @@ pub fn routes() -> Router<Arc<ApiDeps>> {
 
 fn text(body: String) -> Response {
     ([(header::CONTENT_TYPE, "text/plain; charset=UTF-8")], body).into_response()
+}
+
+/// Reads both comparisons from one snapshot so a focused view stays in place.
+async fn review_context(State(d): State<Arc<ApiDeps>>) -> ApiResult {
+    let snap = d.session.snapshotter()?.current().await?;
+    let repo = &d.session.repo;
+    let mut out = crate::protocol::review_scope(&snap);
+    let context = snap.context as u32;
+    let range = &snap.commits;
+    let focused = (range.old_sha.as_str(), range.new_sha.as_str()) != (snap.old_sha.as_str(), snap.new_sha.as_str());
+    out.push_str("\nWhole review patch:\n");
+    if focused {
+        let changed = repo.numstat(&range.old_sha, &range.new_sha).await?;
+        out.push_str(&repo.patch_many(&range.old_sha, &range.new_sha, &changed, context).await?);
+        out.push_str("\nShown view patch:\n");
+    }
+    out.push_str(&repo.patch_many(&snap.old_sha, &snap.new_sha, &snap.changed, context).await?);
+    Ok(text(out))
 }
 
 async fn patch(State(d): State<Arc<ApiDeps>>, RawQuery(raw): RawQuery) -> ApiResult {

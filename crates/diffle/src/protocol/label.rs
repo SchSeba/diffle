@@ -60,6 +60,19 @@ pub fn comparison_label(review: &Review) -> String {
     }
 }
 
+/// Identifies the repository, whole comparison and displayed endpoints of an agent handoff.
+pub fn review_scope(snapshot: &super::Snapshot) -> String {
+    format!(
+        "Repository: {}\nReview: {}\nWhole review: {} -> {}\nShown view: {} -> {}\n",
+        snapshot.root,
+        comparison_label(&snapshot.review),
+        snapshot.commits.old_sha,
+        snapshot.commits.new_sha,
+        snapshot.old_sha,
+        snapshot.new_sha,
+    )
+}
+
 fn short(rev: &str) -> String {
     rev.chars().take(7).collect()
 }

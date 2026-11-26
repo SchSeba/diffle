@@ -14,7 +14,7 @@ Consider folding this into `ledger.py`; it only has two callers.
 
 ## Pending feedback in Diffle
 
-Run `diffle comments context <target>` immediately before addressing each item. Read the thread and applicable repository instructions, including `AGENTS.md`. Investigate questions against the current code. For requested changes, plan the fix and its verification, implement it, then run the relevant tests and required repository checks. Check each target against the final diff. Reply with the finding or fix and the observed check result using `diffle comments reply <target> <summary>`. Leave blocked items pending.
+On the first Diffle task for this review in this chat, run `diffle review-context` and read the whole patch before handling individual comments. Refresh that understanding if the review changes. Run `diffle comments context <target>` immediately before addressing each item. Read the README and applicable `AGENTS.md`. Before the first fix, explain the change's purpose, rationale and flow in chat and ask about unresolved intent. Read the thread and investigate questions against the current code. For requested changes, plan the fix and its verification, implement it, then run the relevant tests and required repository checks. Check each target against the final diff. Reply with the finding or fix and the observed check result using `diffle comments reply <target> <summary>`. Leave blocked items pending.
 
 Consider folding this into `ledger.py`; it only has two callers.
 

@@ -29,12 +29,19 @@ pub fn format_followup(
         return prompt;
     }
     if live {
-        prompt.push_str("\n## Pending feedback in Diffle\n\nRun `diffle comments context <target>` immediately before addressing each item. ");
+        prompt.push_str(
+            "\n## Pending feedback in Diffle\n\nOn the first Diffle task for this review in this chat, run `diffle review-context` \
+             and read the whole patch before handling individual comments. Refresh that understanding if the review changes. \
+             Run `diffle comments context <target>` immediately before addressing each item. ",
+        );
     } else {
-        prompt.push_str("\n## Saved feedback context\n\nThese excerpts are historical. Verify the current location before editing. ");
+        prompt.push_str(
+            "\n## Saved feedback context\n\nThese excerpts are historical. Read the full Git diff for the recorded comparison, \
+             including untracked files on a worktree side. Verify the current location before editing. ",
+        );
     }
     prompt.push_str(
-        "Read the thread and applicable repository instructions, including `AGENTS.md`. Investigate questions against the current code. \
+        "Read the README and applicable `AGENTS.md`. Before the first fix, explain the change's purpose, rationale and flow in chat and ask about unresolved intent. Read the thread and investigate questions against the current code. \
          For requested changes, plan the fix and its verification, implement it, then run the relevant tests and required repository checks.",
     );
     if live {
